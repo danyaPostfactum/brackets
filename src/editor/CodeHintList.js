@@ -238,13 +238,15 @@ define(function (require, exports, module) {
      * @return {{left: number, top: number, width: number}}
      */
     CodeHintList.prototype._calcHintListLocation = function () {
-        var cursor      = this.editor._codeMirror.cursorCoords(),
-            posTop      = cursor.bottom,
-            posLeft     = cursor.left,
-            textHeight  = this.editor.getTextHeight(),
+        var textHeight  = this.editor.getTextHeight(),
             $window     = $(window),
             $menuWindow = this.$hintMenu.children("ul"),
             menuHeight  = $menuWindow.outerHeight();
+
+        var cursorPos = this.editor._ace.getCursorPosition(),
+            cursorCoords = this.editor._ace.renderer.textToScreenCoordinates(cursorPos),
+            posTop = cursorCoords.pageY + this.editor._ace.renderer.lineHeight,
+            posLeft = cursorCoords.pageX;
 
         // TODO Ty: factor out menu repositioning logic so code hints and Context menus share code
         // adjust positioning so menu is not clipped off bottom or right

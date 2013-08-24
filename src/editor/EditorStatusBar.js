@@ -91,7 +91,7 @@ define(function (require, exports, module) {
         // compute columns, account for tab size
         var cursor = editor.getCursorPos(true);
         
-        var cursorStr = StringUtils.format(Strings.STATUSBAR_CURSOR_POSITION, cursor.line + 1, cursor.ch + 1);
+        var cursorStr = StringUtils.format(Strings.STATUSBAR_CURSOR_POSITION, cursor.row + 1, cursor.column + 1);
         if (editor.hasSelection()) {
             // Show info about selection size when one exists
             var sel = editor.getSelection(),

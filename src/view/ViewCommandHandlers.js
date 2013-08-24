@@ -113,16 +113,18 @@ define(function (require, exports, module) {
      */
     function _setSizeAndRestoreScroll(fontSizeStyle, lineHeightStyle) {
         var editor      = EditorManager.getCurrentFullEditor(),
-            oldWidth    = editor._codeMirror.defaultCharWidth(),
+            oldWidth    = editor._ace.renderer.$textLayer.getCharacterWidth(),
             oldHeight   = editor.getTextHeight(),
             scrollPos   = editor.getScrollPos(),
-            viewportTop = $(".CodeMirror-lines", editor.getRootElement()).parent().position().top,
+            // viewportTop = $(".CodeMirror-lines", editor.getRootElement()).parent().position().top,
+            // todo
+            viewportTop = 0,
             scrollTop   = scrollPos.y - viewportTop;
         
         // It's necessary to inject a new rule to address all editors.
         _removeDynamicFontSize();
         var style = $("<style type='text/css'></style>").attr("id", DYNAMIC_FONT_STYLE_ID);
-        style.html(".CodeMirror {" +
+        style.html(".ace_editor {" +
                    "font-size: "   + fontSizeStyle   + " !important;" +
                    "line-height: " + lineHeightStyle + " !important;}");
         $("head").append(style);
@@ -130,7 +132,7 @@ define(function (require, exports, module) {
         editor.refreshAll();
         
         // Calculate the new scroll based on the old font sizes and scroll position
-        var newWidth    = editor._codeMirror.defaultCharWidth(),
+        var newWidth    = editor._ace.renderer.$textLayer.getCharacterWidth(),
             newHeight   = editor.getTextHeight(),
             deltaX      = scrollPos.x / oldWidth,
             deltaY      = scrollTop / oldHeight,
@@ -151,8 +153,9 @@ define(function (require, exports, module) {
      * @return {boolean} true if adjustment occurred, false if it did not occur 
      */
     function _adjustFontSize(adjustment) {
-        var fsStyle = $(".CodeMirror").css("font-size");
-        var lhStyle = $(".CodeMirror").css("line-height");
+        try {
+        var fsStyle = $(".ace_editor").css("font-size");
+        var lhStyle = $(".ace_editor").css("line-height");
 
         var validFont = /^[\d\.]+(px|em)$/;
         
@@ -161,6 +164,7 @@ define(function (require, exports, module) {
         if (fsStyle.search(validFont) === -1 || lhStyle.search(validFont) === -1) {
             return false;
         }
+
         
         // Guaranteed to work by the validation above.
         var fsUnits = fsStyle.substring(fsStyle.length - 2, fsStyle.length);
@@ -193,6 +197,7 @@ define(function (require, exports, module) {
         
         $(exports).triggerHandler("fontSizeChange", [adjustment, fsStr, lhStr]);
         return true;
+    }catch(e){console.error(e)}
     }
     
     /** Increases the font size by 1 */
@@ -315,16 +320,16 @@ define(function (require, exports, module) {
         // If there is no selection move the cursor so that is always visible.
         if (!hasSelecction) {
             // Move the cursor to the first visible line.
-            if (cursorPos.line < linesInView.first) {
-                editor.setCursorPos({line: linesInView.first + direction, ch: cursorPos.ch});
+            if (cursorPos.row < linesInView.first) {
+                editor.setCursorPos({row: linesInView.first + direction, column: cursorPos.column});
             
             // Move the cursor to the last visible line.
-            } else if (cursorPos.line > linesInView.last) {
-                editor.setCursorPos({line: linesInView.last + direction, ch: cursorPos.ch});
+            } else if (cursorPos.row > linesInView.last) {
+                editor.setCursorPos({row: linesInView.last + direction, column: cursorPos.column});
             
             // Move the cursor up or down using moveV to keep the goal column intact, since setCursorPos deletes it.
-            } else if ((direction > 0 && cursorPos.line === linesInView.first) ||
-                    (direction < 0 && cursorPos.line === linesInView.last)) {
+            } else if ((direction > 0 && cursorPos.row === linesInView.first) ||
+                    (direction < 0 && cursorPos.row === linesInView.last)) {
                 editor._codeMirror.moveV(direction, "line");
             }
         }

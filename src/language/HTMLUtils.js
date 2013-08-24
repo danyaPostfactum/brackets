@@ -301,7 +301,7 @@ define(function (require, exports, module) {
         // We're going to be changing pos a lot, but we don't want to mess up
         // the pos the caller passed in so we use extend to make a safe copy of it.	
         var pos = $.extend({}, constPos),
-            ctx = TokenUtils.getInitialContext(editor._codeMirror, pos),
+            ctx = TokenUtils.getInitialContext(editor._ace, pos),
             tempCtx = null,
             offset = TokenUtils.offsetInToken(ctx),
             tagInfo,
@@ -313,22 +313,22 @@ define(function (require, exports, module) {
         }
         
         //check and see where we are in the tag
-        if (ctx.token.string.length > 0 && ctx.token.string.trim().length === 0) {
+        if (ctx.token.value.length > 0 && ctx.token.value.trim().length === 0) {
 
             // token at (i.e. before) pos is whitespace, so test token at next pos
             //
             // note: getTokenAt() does range checking for ch. If it detects that ch is past
             // EOL, it uses EOL, same token is returned, and the following condition fails,
             // so we don't need to worry about testPos being valid.
-            var testPos = {ch: ctx.pos.ch + 1, line: ctx.pos.line},
-                testToken = editor._codeMirror.getTokenAt(testPos, true);
+            var testPos = {column: ctx.pos.column + 1, row: ctx.pos.row},
+                testToken = editor._ace.session.getTokenAt(testPos.row, testPos.column);
 
-            if (testToken.string.length > 0 && testToken.string.trim().length > 0 &&
-                    testToken.string.charAt(0) !== ">") {
+            if (testToken.value.length > 0 && testToken.value.trim().length > 0 &&
+                    testToken.value.charAt(0) !== ">") {
                 // pos has whitespace before it and non-whitespace after it, so use token after
                 ctx.token = testToken;
 
-                if (ctx.token.type === "tag" || ctx.token.type === "error") {
+                if (ctx.token.type === "meta.tag-name") {
                     // Check to see if the cursor is just before a "<" but not in any tag.
                     if (ctx.token.string.charAt(0) === "<") {
                         return createTagInfo();
@@ -394,36 +394,40 @@ define(function (require, exports, module) {
             }
         }
         
-        if (ctx.token.type === "tag" || ctx.token.type === "error") {
+        if (ctx.token.type === "meta.tag-name" || (ctx.token.type === "text" && ctx.token.value.substring(ctx.token.value.length-1) === '<')) {
             // Check if the user just typed a white space after "<" that made an existing tag invalid.
-            if (ctx.token.string.match(/^<\s+/) && offset !== 1) {
+            if (ctx.token.value.match(/^<\s+/) && offset !== 1) {
                 return createTagInfo();
             }
             
             // Check to see if this is the closing of a start tag or a self closing tag
-            if (ctx.token.string === ">" || ctx.token.string === "/>") {
+            if (ctx.token.value === ">" || ctx.token.value === "/>") {
                 return createTagInfo();
             }
             
             // Check to see if this is a closing tag
-            if (ctx.token.string.charAt(0) === "<" && ctx.token.string.charAt(1) === "/") {
-                return createTagInfo(CLOSING_TAG, offset - 2, ctx.token.string.slice(2));
+            if (ctx.token.value.charAt(0) === "<" && ctx.token.value.charAt(1) === "/") {
+                return createTagInfo(CLOSING_TAG, offset - 2, ctx.token.value.slice(2));
             }
             
             // Make sure the cursor is not after an equal sign or a quote before we report the context as a tag.
-            if (ctx.token.string !== "=" && ctx.token.string.match(/^["']/) === null) {
+            if (ctx.token.value !== "=" && ctx.token.value.match(/^["']/) === null) {
                 if (!tokenType) {
                     tokenType = TAG_NAME;
                     offset--; //need to take off 1 for the leading "<"
                 }
+
+                if (ctx.token.type === 'text') {
+                    var tagName = '';
+                }
                 
                 // We're actually in the tag, just return that as we have no relevant 
                 // info about what attr is selected
-                return createTagInfo(tokenType, offset, _extractTagName(ctx));
+                return createTagInfo(tokenType, offset, tagName);
             }
         }
         
-        if (ctx.token.string === "=") {
+        if (ctx.token.value === "=") {
             // We could be between the attr and the value
             // Step back and check
             if (!TokenUtils.moveSkippingWhitespace(TokenUtils.movePrevToken, ctx) || ctx.token.type !== "attribute") {

@@ -307,7 +307,7 @@ define(function (require, exports, module) {
                         fileInfo.column = 1;
                     }
                     // setCursorPos expects line/column numbers as 0-origin, so we subtract 1
-                    EditorManager.getCurrentFullEditor().setCursorPos(fileInfo.line - 1, fileInfo.column - 1, true);
+                    EditorManager.getCurrentFullEditor().setCursorPos({row: fileInfo.line - 1, column: fileInfo.column - 1}, true);
                 }
                 
                 // Give the editor focus

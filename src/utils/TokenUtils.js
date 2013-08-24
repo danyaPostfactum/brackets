@@ -44,7 +44,7 @@ define(function (require, exports, module) {
         return {
             "editor": editor,
             "pos": pos,
-            "token": editor.getTokenAt(pos, true)
+            "token": editor.session.getTokenAt(pos.row, pos.column)
         };
     }
     
@@ -54,17 +54,17 @@ define(function (require, exports, module) {
      * @return {boolean} whether the context changed
      */
     function movePrevToken(ctx) {
-        if (ctx.pos.ch <= 0 || ctx.token.start <= 0) {
+        if (ctx.pos.column <= 0 || ctx.token.start <= 0) {
             //move up a line
-            if (ctx.pos.line <= 0) {
+            if (ctx.pos.row <= 0) {
                 return false; //at the top already
             }
-            ctx.pos.line--;
-            ctx.pos.ch = ctx.editor.getLine(ctx.pos.line).length;
+            ctx.pos.row--;
+            ctx.pos.column = ctx.editor.session.getLine(ctx.pos.row).length;
         } else {
-            ctx.pos.ch = ctx.token.start;
+            ctx.pos.column = ctx.token.start;
         }
-        ctx.token = ctx.editor.getTokenAt(ctx.pos, true);
+        ctx.token = ctx.editor.session.getTokenAt(ctx.pos.row, ctx.pos.column);
         return true;
     }
     
@@ -74,18 +74,18 @@ define(function (require, exports, module) {
      * @return {boolean} whether the context changed
      */
     function moveNextToken(ctx) {
-        var eol = ctx.editor.getLine(ctx.pos.line).length;
-        if (ctx.pos.ch >= eol || ctx.token.end >= eol) {
+        var eol = ctx.editor.session.getLine(ctx.pos.row).length;
+        if (ctx.pos.column >= eol || ctx.token.start + ctx.token.value.length >= eol) {
             //move down a line
-            if (ctx.pos.line >= ctx.editor.lineCount() - 1) {
+            if (ctx.pos.row >= ctx.editor.session.getLength() - 1) {
                 return false; //at the bottom
             }
-            ctx.pos.line++;
-            ctx.pos.ch = 0;
+            ctx.pos.row++;
+            ctx.pos.column = 0;
         } else {
-            ctx.pos.ch = ctx.token.end + 1;
+            ctx.pos.column = ctx.token.start + ctx.token.value.length + 1;
         }
-        ctx.token = ctx.editor.getTokenAt(ctx.pos, true);
+        ctx.token = ctx.editor.session.getTokenAt(ctx.pos.row, ctx.pos.column);
         return true;
     }
     
@@ -99,7 +99,7 @@ define(function (require, exports, module) {
         if (!moveFxn(ctx)) {
             return false;
         }
-        while (!ctx.token.type && ctx.token.string.trim().length === 0) {
+        while (ctx.token && !ctx.token.type && ctx.token.string.trim().length === 0) {
             if (!moveFxn(ctx)) {
                 return false;
             }
@@ -113,7 +113,7 @@ define(function (require, exports, module) {
      * @return {number}
      */
     function offsetInToken(ctx) {
-        var offset = ctx.pos.ch - ctx.token.start;
+        var offset = ctx.pos.column - (ctx.token ? ctx.token.start : 0);
         if (offset < 0) {
             console.log("CodeHintUtils: _offsetInToken - Invalid context: pos not in the current token!");
         }

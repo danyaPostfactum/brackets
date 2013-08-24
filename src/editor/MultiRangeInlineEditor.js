@@ -382,10 +382,10 @@ define(function (require, exports, module) {
             // Only set the cursor if the click isn't in the range list.
             if (!containsClick(this.$relatedContainer)) {
                 if (event.pageY < editorPos.top) {
-                    childEditor.setCursorPos(0, 0);
+                    childEditor.setCursorPos({row: 0, column: 0});
                 } else if (event.pageY > editorPos.top + $(editorRoot).height()) {
                     var lastLine = childEditor.getLastVisibleLine();
-                    childEditor.setCursorPos(lastLine, childEditor.document.getLine(lastLine).length);
+                    childEditor.setCursorPos({row: lastLine, column: childEditor.document.getLine(lastLine).length});
                 }
             }
         }

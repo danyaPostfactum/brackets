@@ -178,8 +178,8 @@ define(function (require, exports, module) {
         }
                 
         lineContentBeforeCursor = this.editor.document.getRange({
-            line: cursor.line,
-            ch: 0
+            row: cursor.row,
+            column: 0
         }, cursor);
         
         startChar = lineContentBeforeCursor.lastIndexOf("&");

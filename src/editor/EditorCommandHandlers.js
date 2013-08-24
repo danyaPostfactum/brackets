@@ -132,15 +132,15 @@ define(function (require, exports, module) {
     function lineCommentPrefix(editor, prefixes) {
         var doc       = editor.document,
             sel       = editor.getSelection(),
-            startLine = sel.start.line,
-            endLine   = sel.end.line,
+            startLine = sel.start.row,
+            endLine   = sel.end.row,
             lineExp   = _createLineExpressions(prefixes);
         
         // Is a range of text selected? (vs just an insertion pt)
-        var hasSelection = (startLine !== endLine) || (sel.start.ch !== sel.end.ch);
+        var hasSelection = (startLine !== endLine) || (sel.start.column !== sel.end.column);
         
         // In full-line selection, cursor pos is start of next line - but don't want to modify that line
-        if (sel.end.ch === 0 && hasSelection) {
+        if (sel.end.column === 0 && hasSelection) {
             endLine--;
         }
         
@@ -160,11 +160,11 @@ define(function (require, exports, module) {
             if (containsUncommented) {
                 // Comment out - prepend the first prefix to each line
                 for (i = startLine; i <= endLine; i++) {
-                    doc.replaceRange(prefixes[0], {line: i, ch: 0});
+                    doc.replaceRange(prefixes[0], {row: i, column: 0});
                 }
                 
                 // Make sure selection includes the prefix that was added at start of range
-                if (sel.start.ch === 0 && hasSelection) {
+                if (sel.start.column === 0 && hasSelection) {
                     updateSelection = true;
                 }
             
@@ -176,7 +176,7 @@ define(function (require, exports, module) {
                     
                     if (prefix) {
                         commentI = line.indexOf(prefix);
-                        doc.replaceRange("", {line: i, ch: commentI}, {line: i, ch: commentI + prefix.length});
+                        doc.replaceRange("", {row: i, column: commentI}, {row: i, column: commentI + prefix.length});
                     }
                 }
             }
@@ -186,7 +186,7 @@ define(function (require, exports, module) {
         // if this editor is not the master editor.
         if (updateSelection) {
             // use *current* selection end, which has been updated for our text insertions
-            editor.setSelection({line: startLine, ch: 0}, editor.getSelection().end);
+            editor.setSelection({row: startLine, column: 0}, editor.getSelection().end);
         }
     }
     
@@ -195,55 +195,55 @@ define(function (require, exports, module) {
      * @private
      * Moves the token context to the token that starts the block-comment. Ctx starts in a block-comment.
      * Returns the position of the prefix or null if gets to the start of the document and didn't found it.
-     * @param {!{editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}}} ctx - token context
+     * @param {!{editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}}} ctx - token context
      * @param {!RegExp} prefixExp - a valid regular expression
-     * @return {?{line: number, ch: number}}
+     * @return {?{row: number, column: number}}
      */
     function _findCommentStart(ctx, prefixExp) {
         var result = true;
         
-        while (result && !ctx.token.string.match(prefixExp)) {
+        while (result && !ctx.token.value.match(prefixExp)) {
             result = TokenUtils.moveSkippingWhitespace(TokenUtils.movePrevToken, ctx);
         }
-        return result ? {line: ctx.pos.line, ch: ctx.token.start} : null;
+        return result ? {row: ctx.pos.row, column: ctx.token.start} : null;
     }
     
     /**
      * @private
      * Moves the token context to the token that ends the block-comment. Ctx starts in a block-comment.
      * Returns the position of the sufix or null if gets to the end of the document and didn't found it.
-     * @param {!{editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}}} ctx - token context
+     * @param {!{editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}}} ctx - token context
      * @param {!RegExp} suffixExp - a valid regular expression
      * @param {!number} suffixLen - length of the suffix
-     * @return {?{line: number, ch: number}}
+     * @return {?{row: number, column: number}}
      */
     function _findCommentEnd(ctx, suffixExp, suffixLen) {
         var result = true;
         
-        while (result && !ctx.token.string.match(suffixExp)) {
+        while (result && !ctx.token.value.match(suffixExp)) {
             result = TokenUtils.moveSkippingWhitespace(TokenUtils.moveNextToken, ctx);
         }
-        return result ? {line: ctx.pos.line, ch: ctx.token.end - suffixLen} : null;
+        return result ? {row: ctx.pos.row, column: ctx.token.start + ctx.token.value.length - suffixLen} : null;
     }
     
     /**
      * @private
      * Moves the token context to the next block-comment if there is one before end.
-     * @param {!{editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}}} ctx - token context
-     * @param {!{line: number, ch: number}} end - where to stop searching
+     * @param {!{editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}}} ctx - token context
+     * @param {!{row: number, column: number}} end - where to stop searching
      * @param {!RegExp} prefixExp - a valid regular expression
      * @return {boolean} - true if it found a block-comment
      */
     function _findNextBlockComment(ctx, end, prefixExp) {
-        var index  = ctx.editor.indexFromPos(end),
-            inside = ctx.editor.indexFromPos(ctx.pos) <= index,
+        var index  = ctx.editor.session.getDocument().positionToIndex(end),
+            inside = ctx.editor.session.getDocument().positionToIndex(ctx.pos) <= index,
             result = true;
         
-        while (result && inside && !ctx.token.string.match(prefixExp)) {
+        while (result && inside && ctx.token && !ctx.token.value.match(prefixExp)) {
             result = TokenUtils.moveSkippingWhitespace(TokenUtils.moveNextToken, ctx);
-            inside = ctx.editor.indexFromPos(ctx.pos) <= index;
+            inside = ctx.editor.session.getDocument().positionToIndex(ctx.pos) <= index;
         }
-        return result && inside && !!ctx.token.string.match(prefixExp);
+        return result && inside && ctx.token && !!ctx.token.value.match(prefixExp);
     }
     
     /**
@@ -268,9 +268,9 @@ define(function (require, exports, module) {
         
         var doc            = editor.document,
             sel            = editor.getSelection(),
-            ctx            = TokenUtils.getInitialContext(editor._codeMirror, {line: sel.start.line, ch: sel.start.ch}),
-            startCtx       = TokenUtils.getInitialContext(editor._codeMirror, {line: sel.start.line, ch: sel.start.ch}),
-            endCtx         = TokenUtils.getInitialContext(editor._codeMirror, {line: sel.end.line, ch: sel.end.ch}),
+            ctx            = TokenUtils.getInitialContext(editor._ace, {row: sel.start.row, column: sel.start.column}),
+            startCtx       = TokenUtils.getInitialContext(editor._ace, {row: sel.start.row, column: sel.start.column}),
+            endCtx         = TokenUtils.getInitialContext(editor._ace, {row: sel.end.row, column: sel.end.column}),
             prefixExp      = new RegExp("^" + StringUtils.regexEscape(prefix), "g"),
             suffixExp      = new RegExp(StringUtils.regexEscape(suffix) + "$", "g"),
             lineExp        = _createLineExpressions(linePrefixes),
@@ -284,34 +284,34 @@ define(function (require, exports, module) {
         var result, text, line;
         
         // Move the context to the first non-empty token.
-        if (!ctx.token.type && ctx.token.string.trim().length === 0) {
+        if (!ctx.token.type && ctx.token && ctx.token.value.trim().length === 0) {
             result = TokenUtils.moveSkippingWhitespace(TokenUtils.moveNextToken, ctx);
         }
         
         // Check if we should just do a line uncomment (if all lines in the selection are commented).
-        if (lineExp.length && (_matchExpressions(ctx.token.string, lineExp) || _matchExpressions(endCtx.token.string, lineExp))) {
-            var startCtxIndex = editor.indexFromPos({line: ctx.pos.line, ch: ctx.token.start});
-            var endCtxIndex   = editor.indexFromPos({line: endCtx.pos.line, ch: endCtx.token.start + endCtx.token.string.length});
+        if (lineExp.length && ((ctx.token &&_matchExpressions(ctx.token.value, lineExp)) || (endCtx.token && _matchExpressions(endCtx.token.value, lineExp)))) {
+            var startCtxIndex = editor.indexFromPos({row: ctx.pos.row, column: ctx.token.start});
+            var endCtxIndex   = editor.indexFromPos({row: endCtx.pos.row, column: endCtx.token.start + endCtx.token.value.length});
             
             // Find if we aren't actually inside a block-comment
             result = true;
-            while (result && _matchExpressions(ctx.token.string, lineExp)) {
+            while (result && _matchExpressions(ctx.token.value, lineExp)) {
                 result = TokenUtils.moveSkippingWhitespace(TokenUtils.movePrevToken, ctx);
             }
             
             // If we aren't in a block-comment.
-            if (!result || ctx.token.type !== "comment" || ctx.token.string.match(suffixExp)) {
+            if (!result || ctx.token.type !== "comment" || ctx.token.value.match(suffixExp)) {
                 // Is a range of text selected? (vs just an insertion pt)
-                var hasSelection = (sel.start.line !== sel.end.line) || (sel.start.ch !== sel.end.ch);
+                var hasSelection = (sel.start.row !== sel.end.row) || (sel.start.column !== sel.end.column);
                 
                 // In full-line selection, cursor pos is start of next line - but don't want to modify that line
-                var endLine = sel.end.line;
-                if (sel.end.ch === 0 && hasSelection) {
+                var endLine = sel.end.row;
+                if (sel.end.column === 0 && hasSelection) {
                     endLine--;
                 }
                 
                 // Find if all the lines are line-commented.
-                if (!_containsUncommented(editor, sel.start.line, endLine, lineExp)) {
+                if (!_containsUncommented(editor, sel.start.row, endLine, lineExp)) {
                     lineUncomment = true;
                 
                 // Block-comment in all the other cases
@@ -325,7 +325,7 @@ define(function (require, exports, module) {
             
         // If we are in a selection starting and ending in invalid tokens and with no content (not considering spaces),
         // find if we are inside a block-comment.
-        } else if (startCtx.token.type === null && endCtx.token.type === null &&
+        } else if (startCtx.token && startCtx.token.type === null && endCtx.token.type === null &&
                 !editor.posWithinRange(ctx.pos, startCtx.pos, endCtx.pos, true)) {
             result = TokenUtils.moveSkippingWhitespace(TokenUtils.moveNextToken, startCtx);
             
@@ -342,7 +342,7 @@ define(function (require, exports, module) {
             }
         
         // If the start is inside a comment, find the prefix and suffix positions.
-        } else if (ctx.token.type === "comment") {
+        } else if (ctx.token && ctx.token.type === "comment") {
             prefixPos = _findCommentStart(ctx, prefixExp);
             suffixPos = _findCommentEnd(ctx, suffixExp, suffix.length);
             
@@ -354,10 +354,10 @@ define(function (require, exports, module) {
             if (!result) {
                 canComment = true;
             } else {
-                if (!ctx.token.string.match(prefixExp)) {
+                if (!ctx.token.value.match(prefixExp)) {
                     prefixPos = _findCommentStart(ctx, prefixExp);
                 } else {
-                    prefixPos = {line: ctx.pos.line, ch: ctx.token.start};
+                    prefixPos = {row: ctx.pos.row, column: ctx.token.start};
                 }
                 suffixPos = _findCommentEnd(ctx, suffixExp, suffix.length);
             }
@@ -365,7 +365,7 @@ define(function (require, exports, module) {
         
         // Search if there is another comment in the selection. Do nothing if there is one.
         if (!canComment && !invalidComment && !lineUncomment && suffixPos) {
-            var start = {line: suffixPos.line, ch: suffixPos.ch + suffix.length + 1};
+            var start = {row: suffixPos.row, column: suffixPos.column + suffix.length + 1};
             if (editor.posWithinRange(start, sel.start, sel.end, true)) {
                 // Start searching at the next token, if there is one.
                 result = TokenUtils.moveSkippingWhitespace(TokenUtils.moveNextToken, ctx) &&
@@ -390,7 +390,7 @@ define(function (require, exports, module) {
                 
                 if (canComment) {
                     // Comment out - add the suffix to the start and the prefix to the end.
-                    var completeLineSel = sel.start.ch === 0 && sel.end.ch === 0 && sel.start.line < sel.end.line;
+                    var completeLineSel = sel.start.column === 0 && sel.end.column === 0 && sel.start.row < sel.end.row;
                     if (completeLineSel) {
                         doc.replaceRange(suffix + "\n", sel.end);
                         doc.replaceRange(prefix + "\n", sel.start);
@@ -401,13 +401,13 @@ define(function (require, exports, module) {
                     
                     // Correct the selection.
                     if (completeLineSel) {
-                        newSelection = {start: {line: sel.start.line + 1, ch: 0}, end: {line: sel.end.line + 1, ch: 0}};
+                        newSelection = {start: {row: sel.start.row + 1, column: 0}, end: {row: sel.end.row + 1, column: 0}};
                     } else {
-                        var newSelStart = {line: sel.start.line, ch: sel.start.ch + prefix.length};
-                        if (sel.start.line === sel.end.line) {
-                            newSelection = {start: newSelStart, end: {line: sel.end.line, ch: sel.end.ch + prefix.length}};
+                        var newSelStart = {row: sel.start.row, column: sel.start.column + prefix.length};
+                        if (sel.start.row === sel.end.row) {
+                            newSelection = {start: newSelStart, end: {row: sel.end.row, column: sel.end.column + prefix.length}};
                         } else {
-                            newSelection = {start: newSelStart, end: {line: sel.end.line, ch: sel.end.ch}};
+                            newSelection = {start: newSelStart, end: {row: sel.end.row, column: sel.end.column}};
                         }
                     }
                 
@@ -417,27 +417,27 @@ define(function (require, exports, module) {
                     // If both are found we assume that a complete line selection comment added new lines, so we remove them.
                     var prefixAtStart = false, suffixAtStart = false;
                     
-                    line = doc.getLine(prefixPos.line).trim();
-                    prefixAtStart = prefixPos.ch === 0 && prefix.length === line.length;
+                    line = doc.getLine(prefixPos.row).trim();
+                    prefixAtStart = prefixPos.column === 0 && prefix.length === line.length;
                     if (suffixPos) {
-                        line = doc.getLine(suffixPos.line).trim();
-                        suffixAtStart = suffixPos.ch === 0 && suffix.length === line.length;
+                        line = doc.getLine(suffixPos.row).trim();
+                        suffixAtStart = suffixPos.column === 0 && suffix.length === line.length;
                     }
                     
                     // Remove the suffix if there is one
                     if (suffixPos) {
                         if (prefixAtStart && suffixAtStart) {
-                            doc.replaceRange("", suffixPos, {line: suffixPos.line + 1, ch: 0});
+                            doc.replaceRange("", suffixPos, {row: suffixPos.row + 1, column: 0});
                         } else {
-                            doc.replaceRange("", suffixPos, {line: suffixPos.line, ch: suffixPos.ch + suffix.length});
+                            doc.replaceRange("", suffixPos, {row: suffixPos.row, column: suffixPos.column + suffix.length});
                         }
                     }
                     
                     // Remove the prefix
                     if (prefixAtStart && suffixAtStart) {
-                        doc.replaceRange("", prefixPos, {line: prefixPos.line + 1, ch: 0});
+                        doc.replaceRange("", prefixPos, {row: prefixPos.row + 1, column: 0});
                     } else {
-                        doc.replaceRange("", prefixPos, {line: prefixPos.line, ch: prefixPos.ch + prefix.length});
+                        doc.replaceRange("", prefixPos, {row: prefixPos.row, column: prefixPos.column + prefix.length});
                     }
                 }
             });
@@ -468,28 +468,28 @@ define(function (require, exports, module) {
             selStart        = sel.start,
             selEnd          = sel.end,
             prefixExp       = new RegExp("^" + StringUtils.regexEscape(prefix), "g"),
-            isLineSelection = sel.start.ch === 0 && sel.end.ch === 0 && sel.start.line !== sel.end.line,
-            isMultipleLine  = sel.start.line !== sel.end.line,
-            lineLength      = editor.document.getLine(sel.start.line).length;
+            isLineSelection = sel.start.column === 0 && sel.end.column === 0 && sel.start.row !== sel.end.row,
+            isMultipleLine  = sel.start.row !== sel.end.row,
+            lineLength      = editor.document.getLine(sel.start.row).length;
         
         // Line selections already behave like we want to
         if (!isLineSelection) {
             // For a multiple line selection transform it to a multiple whole line selection
             if (isMultipleLine) {
-                selStart = {line: sel.start.line, ch: 0};
-                selEnd   = {line: sel.end.line + 1, ch: 0};
+                selStart = {row: sel.start.row, column: 0};
+                selEnd   = {row: sel.end.row + 1, column: 0};
             
             // For one line selections, just start at column 0 and end at the end of the line
             } else {
-                selStart = {line: sel.start.line, ch: 0};
-                selEnd   = {line: sel.end.line, ch: lineLength};
+                selStart = {row: sel.start.row, column: 0};
+                selEnd   = {row: sel.end.row, column: lineLength};
             }
         }
         
         // If the selection includes a comment or is already a line selection, delegate to Block-Comment
-        var ctx       = TokenUtils.getInitialContext(editor._codeMirror, {line: selStart.line, ch: selStart.ch});
+        var ctx       = TokenUtils.getInitialContext(editor._ace, {row: selStart.row, column: selStart.column});
         var result    = TokenUtils.moveSkippingWhitespace(TokenUtils.moveNextToken, ctx);
-        var className = ctx.token.type;
+        var className = ctx.token && ctx.token.type;
         result        = result && _findNextBlockComment(ctx, selEnd, prefixExp);
         
         if (className === "comment" || result || isLineSelection) {
@@ -501,11 +501,11 @@ define(function (require, exports, module) {
             
             // Restore the old selection taking into account the prefix change
             if (isMultipleLine) {
-                sel.start.line++;
-                sel.end.line++;
+                sel.start.row++;
+                sel.end.row++;
             } else {
-                sel.start.ch += prefix.length;
-                sel.end.ch += prefix.length;
+                sel.start.column += prefix.length;
+                sel.end.column += prefix.length;
             }
             editor.setSelection(sel.start, sel.end);
         }
@@ -560,23 +560,7 @@ define(function (require, exports, module) {
             return;
         }
 
-        var sel = editor.getSelection(),
-            hasSelection = (sel.start.line !== sel.end.line) || (sel.start.ch !== sel.end.ch),
-            delimiter = "";
-
-        if (!hasSelection) {
-            sel.start.ch = 0;
-            sel.end = {line: sel.start.line + 1, ch: 0};
-            if (sel.end.line === editor.lineCount()) {
-                delimiter = "\n";
-            }
-        }
-
-        // Make the edit
-        var doc = editor.document;
-
-        var selectedText = doc.getRange(sel.start, sel.end) + delimiter;
-        doc.replaceRange(selectedText, sel.start);
+        editor._ace.execCommand('duplicateSelection');
     }
 
     /**
@@ -589,115 +573,7 @@ define(function (require, exports, module) {
             return;
         }
 
-        var from,
-            to,
-            sel = editor.getSelection(),
-            doc = editor.document;
-
-        from = {line: sel.start.line, ch: 0};
-        to = {line: sel.end.line + 1, ch: 0};
-        if (to.line === editor.getLastVisibleLine() + 1) {
-            // Instead of deleting the newline after the last line, delete the newline
-            // before the first line--unless this is the entire visible content of the editor,
-            // in which case just delete the line content.
-            if (from.line > editor.getFirstVisibleLine()) {
-                from.line -= 1;
-                from.ch = doc.getLine(from.line).length;
-            }
-            to.line -= 1;
-            to.ch = doc.getLine(to.line).length;
-        }
-        
-        doc.replaceRange("", from, to);
-    }
-    
-    /**
-     * Moves the selected text, or current line if no selection. The cursor/selection 
-     * moves with the line/lines.
-     * @param {Editor} editor - target editor
-     * @param {Number} direction - direction of the move (-1,+1) => (Up,Down)
-     */
-    function moveLine(editor, direction) {
-        editor = editor || EditorManager.getFocusedEditor();
-        if (!editor) {
-            return;
-        }
-        
-        var doc = editor.document,
-            sel = editor.getSelection(),
-            originalSel    = editor.getSelection(),
-            hasSelection   = (sel.start.line !== sel.end.line) || (sel.start.ch !== sel.end.ch),
-            isInlineWidget = !!EditorManager.getFocusedInlineWidget(),
-            firstLine      = editor.getFirstVisibleLine(),
-            lastLine       = editor.getLastVisibleLine(),
-            totalLines     = editor.lineCount(),
-            lineLength     = 0;
-        
-        sel.start.ch = 0;
-        // The end of the selection becomes the start of the next line, if it isn't already
-        if (!hasSelection || sel.end.ch !== 0) {
-            sel.end = {line: sel.end.line + 1, ch: 0};
-        }
-        
-        // Make the move
-        switch (direction) {
-        case DIRECTION_UP:
-            if (sel.start.line !== firstLine) {
-                doc.batchOperation(function () {
-                    var prevText = doc.getRange({ line: sel.start.line - 1, ch: 0 }, sel.start);
-                    
-                    if (sel.end.line === lastLine + 1) {
-                        if (isInlineWidget) {
-                            prevText   = prevText.substring(0, prevText.length - 1);
-                            lineLength = doc.getLine(sel.end.line - 1).length;
-                            doc.replaceRange("\n", { line: sel.end.line - 1, ch: lineLength });
-                        } else {
-                            prevText = "\n" + prevText.substring(0, prevText.length - 1);
-                        }
-                    }
-                    
-                    doc.replaceRange("", { line: sel.start.line - 1, ch: 0 }, sel.start);
-                    doc.replaceRange(prevText, { line: sel.end.line - 1, ch: 0 });
-                    
-                    // Make sure CodeMirror hasn't expanded the selection to include
-                    // the line we inserted below.
-                    originalSel.start.line--;
-                    originalSel.end.line--;
-                });
-    
-                // Update the selection after the document batch so it's not blown away on resynchronization
-                // if this editor is not the master editor.
-                editor.setSelection(originalSel.start, originalSel.end);
-            }
-            break;
-        case DIRECTION_DOWN:
-            if (sel.end.line <= lastLine) {
-                doc.batchOperation(function () {
-                    var nextText      = doc.getRange(sel.end, { line: sel.end.line + 1, ch: 0 }),
-                        deletionStart = sel.end;
-                    
-                    if (sel.end.line === lastLine) {
-                        if (isInlineWidget) {
-                            if (sel.end.line === totalLines - 1) {
-                                nextText += "\n";
-                            }
-                            lineLength = doc.getLine(sel.end.line - 1).length;
-                            doc.replaceRange("\n", { line: sel.end.line, ch: doc.getLine(sel.end.line).length });
-                        } else {
-                            nextText     += "\n";
-                            deletionStart = { line: sel.end.line - 1, ch: doc.getLine(sel.end.line - 1).length };
-                        }
-                    }
-    
-                    doc.replaceRange("", deletionStart, { line: sel.end.line + 1, ch: 0 });
-                    if (lineLength) {
-                        doc.replaceRange("", { line: sel.end.line - 1, ch: lineLength }, { line: sel.end.line, ch: 0 });
-                    }
-                    doc.replaceRange(nextText, { line: sel.start.line, ch: 0 });
-                });
-            }
-            break;
-        }
+        editor._ace.execCommand('removeline');
     }
     
     /**
@@ -705,7 +581,11 @@ define(function (require, exports, module) {
      * moves with the line/lines.
      */
     function moveLineUp(editor) {
-        moveLine(editor, DIRECTION_UP);
+        editor = editor || EditorManager.getFocusedEditor();
+        if (!editor) {
+            return;
+        }
+        editor._ace.execCommand('movelinesup');
     }
     
     /**
@@ -713,7 +593,11 @@ define(function (require, exports, module) {
      * moves with the line/lines.
      */
     function moveLineDown(editor) {
-        moveLine(editor, DIRECTION_DOWN);
+        editor = editor || EditorManager.getFocusedEditor();
+        if (!editor) {
+            return;
+        }
+        editor._ace.execCommand('movelinesdown');
     }
 
     /**
@@ -729,21 +613,21 @@ define(function (require, exports, module) {
         }
         
         var sel            = editor.getSelection(),
-            hasSelection   = (sel.start.line !== sel.end.line) || (sel.start.ch !== sel.end.ch),
+            hasSelection   = (sel.start.row !== sel.end.row) || (sel.start.column !== sel.end.column),
             isInlineWidget = !!EditorManager.getFocusedInlineWidget(),
             lastLine       = editor.getLastVisibleLine(),
-            cm             = editor._codeMirror,
+            cm             = editor._ace,
             doc            = editor.document,
             line;
         
         // Insert the new line
         switch (direction) {
         case DIRECTION_UP:
-            line = sel.start.line;
+            line = sel.start.row;
             break;
         case DIRECTION_DOWN:
-            line = sel.end.line;
-            if (!(hasSelection && sel.end.ch === 0)) {
+            line = sel.end.row;
+            if (!(hasSelection && sel.end.column === 0)) {
                 // If not linewise selection
                 line++;
             }
@@ -751,12 +635,12 @@ define(function (require, exports, module) {
         }
         
         if (line > lastLine && isInlineWidget) {
-            doc.replaceRange("\n", {line: line - 1, ch: doc.getLine(line - 1).length}, null, "+input");
+            doc.replaceRange("\n", {row: line - 1, column: doc.getLine(line - 1).length}, null, "+input");
         } else {
-            doc.replaceRange("\n", {line: line, ch: 0}, null, "+input");
+            doc.replaceRange("\n", {row: line, column: 0}, null, "+input");
         }
         cm.indentLine(line, "smart", false);
-        editor.setSelection({line: line, ch: null});
+        editor.setSelection({row: line, column: null});
     }
 
     /**
@@ -786,7 +670,7 @@ define(function (require, exports, module) {
             return;
         }
         
-        editor._codeMirror.execCommand("indentMore");
+        editor._ace.execCommand("blockindent");
     }
     
     /**
@@ -798,24 +682,13 @@ define(function (require, exports, module) {
             return;
         }
         
-        editor._codeMirror.execCommand("indentLess");
+        editor._ace.execCommand("blockoutdent");
     }
 
     function selectLine(editor) {
         editor = editor || EditorManager.getFocusedEditor();
         if (editor) {
-            var sel  = editor.getSelection();
-            var from = {line: sel.start.line, ch: 0};
-            var to   = {line: sel.end.line + 1, ch: 0};
-            
-            if (to.line === editor.getLastVisibleLine() + 1) {
-                // Last line: select to end of line instead of start of (hidden/nonexistent) following line,
-                // which due to how CM clips coords would only work some of the time
-                to.line -= 1;
-                to.ch = editor.document.getLine(to.line).length;
-            }
-            
-            editor.setSelection(from, to);
+            editor._ace.selection.selectLine();
         }
     }
 

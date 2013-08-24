@@ -75,6 +75,7 @@ define(function (require, exports, module) {
         TokenUtils         = require("utils/TokenUtils"),
         ViewUtils          = require("utils/ViewUtils"),
         Async              = require("utils/Async");
+        require("thirdparty/ace/ace");
     
     var defaultPrefs = { useTabChar: false, tabSize: 4, spaceUnits: 4, closeBrackets: false,
                          showLineNumbers: true, styleActiveLine: false, wordWrap: true };
@@ -352,9 +353,21 @@ define(function (require, exports, module) {
             "Cmd-Left": "goLineStartSmart"
         };
         
+        var wrapper = window.document.createElement('div');
+        wrapper.style.position = 'absolute';
+        wrapper.style.top = wrapper.style.bottom = 0;
+        wrapper.style.left = wrapper.style.right = 0;
+        container.appendChild(wrapper);
+        this._ace = ace.edit(wrapper);
+        this._ace.setTheme('ace/theme/dreamweaver');
+        this._ace.setShowPrintMargin(false);
+        this._ace.container.style.lineHeight = '1.4';
+        this._ace.setOption('scrollPastEnd', true);
+        this._ace.renderer.$cursorLayer.setSmoothBlinking(true);
+        this._ace.setOption('vScrollBarAlwaysVisible', true);
         // Create the CodeMirror instance
         // (note: CodeMirror doesn't actually require using 'new', but jslint complains without it)
-        this._codeMirror = new CodeMirror(container, {
+        var cm = new CodeMirror(container, {
             electricChars: false,   // we use our own impl of this to avoid CodeMirror bugs; see _checkElectricChars()
             indentWithTabs: _useTabChar,
             tabSize: _tabSize,
@@ -362,7 +375,6 @@ define(function (require, exports, module) {
             lineNumbers: _showLineNumbers,
             lineWrapping: _wordWrap,
             styleActiveLine: _styleActiveLine,
-            coverGutterNextToScrollbar: true,
             matchBrackets: true,
             dragDrop: false,
             extraKeys: codeMirrorKeyMap,
@@ -373,6 +385,17 @@ define(function (require, exports, module) {
                 indentTags: []
             }
         });
+        cm.display.wrapper.style.display = 'none';
+        Object.defineProperty(this, '_codeMirror', {
+            get: function() {
+                console.error('cm access');
+                return cm;
+            },
+            set: function(value) {
+                cm = value;
+            }
+        });
+        //this._codeMirror.display.wrapper.parentNode.removeChild(this._codeMirror.display.wrapper);
         
         // Can't get CodeMirror's focused state without searching for
         // CodeMirror-focused. Instead, track focus via onFocus and onBlur
@@ -386,7 +409,7 @@ define(function (require, exports, module) {
             .on("change", this._handleEditorChange.bind(this));
         
         // Set code-coloring mode BEFORE populating with text, to avoid a flash of uncolored text
-        this._codeMirror.setOption("mode", mode);
+        this._ace.session.setMode('ace/mode/' +mode);
         
         // Initially populate with text. This will send a spurious change event, so need to make
         // sure this is understood as a 'sync from document' case, not a genuine edit
@@ -407,7 +430,7 @@ define(function (require, exports, module) {
                     self._hideLines(end, self.lineCount());
                 }
             });
-            this.setCursorPos(range.startLine, 0);
+            this.setCursorPos({row: range.startLine, column: 0});
         }
 
         // Now that we're fully initialized, we can point the document back at us if needed
@@ -418,7 +441,7 @@ define(function (require, exports, module) {
         // Add scrollTop property to this object for the scroll shadow code to use
         Object.defineProperty(this, "scrollTop", {
             get: function () {
-                return this._codeMirror.getScrollInfo().top;
+                return this._ace.renderer.getScrollTop();
             }
         });
     }
@@ -467,7 +490,15 @@ define(function (require, exports, module) {
         // We'd like undefined/null/"" to mean plain text mode. CodeMirror defaults to plaintext for any
         // unrecognized mode, but it complains on the console in that fallback case: so, convert
         // here so we're always explicit, avoiding console noise.
-        return this.document.getLanguage().getMode() || "text/plain";
+        var mode =  this.document.getLanguage().getMode() || "text/plain";
+        switch (mode) {
+            case 'text/x-brackets-html':
+                return 'html';
+            case 'text/plain':
+                return 'text';
+            default:
+                return mode;
+        }
     };
     
         
@@ -475,15 +506,7 @@ define(function (require, exports, module) {
      * Selects all text and maintains the current scroll position.
      */
     Editor.prototype.selectAllNoScroll = function () {
-        var cm = this._codeMirror,
-            info = this._codeMirror.getScrollInfo();
-        
-        // Note that we do not have to check for the visible range here. This
-        // concern is handled internally by code mirror.
-        cm.operation(function () {
-            cm.scrollTo(info.left, info.top);
-            cm.execCommand("selectAll");
-        });
+        this._ace.selectAll();
     };
     
     /**
@@ -635,45 +658,45 @@ define(function (require, exports, module) {
         // our purposes, though, it's convenient to treat it as an event internally,
         // so we bridge it to jQuery events the same way we do ordinary CodeMirror 
         // events.
-        this._codeMirror.setOption("onKeyEvent", function (instance, event) {
-            $(self).triggerHandler("keyEvent", [self, event]);
-            return event.defaultPrevented;   // false tells CodeMirror we didn't eat the event
-        });
+        // this._codeMirror.setOption("onKeyEvent", function (instance, event) {
+        //     $(self).triggerHandler("keyEvent", [self, event]);
+        //     return event.defaultPrevented;   // false tells CodeMirror we didn't eat the event
+        // });
         
-        // FUTURE: if this list grows longer, consider making this a more generic mapping
-        // NOTE: change is a "private" event--others shouldn't listen to it on Editor, only on
-        // Document
-        this._codeMirror.on("change", function (instance, changeList) {
-            $(self).triggerHandler("change", [self, changeList]);
+        // // FUTURE: if this list grows longer, consider making this a more generic mapping
+        // // NOTE: change is a "private" event--others shouldn't listen to it on Editor, only on
+        // // Document
+        this._ace.on("change", function (e) {
+            $(self).triggerHandler("change", [self, e.data]);
         });
-        this._codeMirror.on("cursorActivity", function (instance) {
+        this._ace.on("changeSelection", function (e) {
             $(self).triggerHandler("cursorActivity", [self]);
         });
-        this._codeMirror.on("scroll", function (instance) {
-            // If this editor is visible, close all dropdowns on scroll.
-            // (We don't want to do this if we're just scrolling in a non-visible editor
-            // in response to some document change event.)
-            if (self.isFullyVisible()) {
-                Menus.closeAll();
-            }
+        // this._codeMirror.on("scroll", function (instance) {
+        //     // If this editor is visible, close all dropdowns on scroll.
+        //     // (We don't want to do this if we're just scrolling in a non-visible editor
+        //     // in response to some document change event.)
+        //     if (self.isFullyVisible()) {
+        //         Menus.closeAll();
+        //     }
 
-            $(self).triggerHandler("scroll", [self]);
-        });
+        //     $(self).triggerHandler("scroll", [self]);
+        // });
 
-        // Convert CodeMirror onFocus events to EditorManager activeEditorChanged
-        this._codeMirror.on("focus", function () {
+        // // Convert CodeMirror onFocus events to EditorManager activeEditorChanged
+        this._ace.on("focus", function () {
             self._focused = true;
             $(self).triggerHandler("focus", [self]);
         });
         
-        this._codeMirror.on("blur", function () {
+        this._ace.on("blur", function () {
             self._focused = false;
             // EditorManager only cares about other Editors gaining focus, so we don't notify it of anything here
         });
 
-        this._codeMirror.on("update", function (instance) {
-            $(self).triggerHandler("update", [self]);
-        });
+        // this._codeMirror.on("update", function (instance) {
+        //     $(self).triggerHandler("update", [self]);
+        // });
     };
     
     /**
@@ -688,12 +711,12 @@ define(function (require, exports, module) {
             scrollPos = this.getScrollPos();
         
         // This *will* fire a change event, but we clear the undo immediately afterward
-        this._codeMirror.setValue(text);
+        this._ace.setValue(text);
         
         // Make sure we can't undo back to the empty state before setValue(), and mark
         // the document clean.
-        this._codeMirror.clearHistory();
-        this._codeMirror.markClean();
+        this._ace.session.$undoManager.reset();
+        this._ace.session.$undoManager.markClean();
         
         // restore cursor and scroll positions
         this.setCursorPos(cursorPos);
@@ -706,15 +729,15 @@ define(function (require, exports, module) {
     /**
      * Gets the current cursor position within the editor. If there is a selection, returns whichever
      * end of the range the cursor lies at.
-     * @param {boolean} expandTabs  If true, return the actual visual column number instead of the character offset in
+     * @param {boolean} expandTabs If true, return the actual visual column number instead of the character offset in
      *      the "ch" property.
      * @return !{line:number, ch:number}
      */
     Editor.prototype.getCursorPos = function (expandTabs) {
-        var cursor = this._codeMirror.getCursor();
+        var cursor = this._ace.getCursorPosition();
         
         if (expandTabs) {
-            cursor.ch = this.getColOffset(cursor);
+            //cursor.ch = this.getColOffset(cursor);
         }
         return cursor;
     };
@@ -722,38 +745,21 @@ define(function (require, exports, module) {
     /**
      * Returns the display column (zero-based) for a given string-based pos. Differs from pos.ch only
      * when the line contains preceding \t chars. Result depends on the current tab size setting.
-     * @param {!{line:number, ch:number}} pos
+     * @param {!{line:number, ch:number}}
      * @return {number}
      */
     Editor.prototype.getColOffset = function (pos) {
-        var line    = this._codeMirror.getRange({line: pos.line, ch: 0}, pos),
-            tabSize = Editor.getTabSize(),
-            column  = 0,
-            i;
-
-        for (i = 0; i < line.length; i++) {
-            if (line[i] === '\t') {
-                column += (tabSize - (column % tabSize));
-            } else {
-                column++;
-            }
-        }
-        return column;
+        return pos.column;
     };
     
     /**
      * Sets the cursor position within the editor. Removes any selection.
-     * @param {number} line  The 0 based line number.
+     * @param {number} line The 0 based line number.
      * @param {number} ch  The 0 based character position; treated as 0 if unspecified.
-     * @param {boolean=} center  True if the view should be centered on the new cursor position.
-     * @param {boolean=} expandTabs  If true, use the actual visual column number instead of the character offset as
-     *      the "ch" parameter.
+     * @param {boolean} center  true if the view should be centered on the new cursor position
      */
-    Editor.prototype.setCursorPos = function (line, ch, center, expandTabs) {
-        if (expandTabs) {
-            ch = this.getColOffset({line: line, ch: ch});
-        }
-        this._codeMirror.setCursor(line, ch);
+    Editor.prototype.setCursorPos = function (pos, center) {
+        this._ace.selection.moveCursorTo(pos.row, pos.column);
         if (center) {
             this.centerOnCursor();
         }
@@ -771,32 +777,7 @@ define(function (require, exports, module) {
      * @param {number} centerOptions Option value, or 0 for no options.
      */
     Editor.prototype.centerOnCursor = function (centerOptions) {
-        var $scrollerElement = $(this.getScrollerElement());
-        var editorHeight = $scrollerElement.height();
-        
-        // we need to make adjustments for the statusbar's padding on the bottom and the menu bar on top. 
-        var statusBarHeight = $scrollerElement.outerHeight() - editorHeight;
-        var menuBarHeight = $scrollerElement.offset().top;
-        
-        var documentCursorPosition = this._codeMirror.cursorCoords(null, "local").bottom;
-        var screenCursorPosition = this._codeMirror.cursorCoords(null, "page").bottom - menuBarHeight;
-        
-        // If the cursor is already reasonably centered, we won't
-        // make any change. "Reasonably centered" is defined as
-        // not being within CENTERING_MARGIN of the top or bottom
-        // of the editor (where CENTERING_MARGIN is a percentage
-        // of the editor height).
-        // For finding the first item (i.e. find while typing), do
-        // not center if hit is in first half of screen because this
-        // appears to be an unnecesary scroll.
-        if ((_checkTopBoundary(centerOptions) && (screenCursorPosition < editorHeight * CENTERING_MARGIN)) ||
-                (_checkBottomBoundary(centerOptions) && (screenCursorPosition > editorHeight * (1 - CENTERING_MARGIN)))) {
-
-            var pos = documentCursorPosition - editorHeight / 2 + statusBarHeight;
-            var info = this._codeMirror.getScrollInfo();
-            pos = Math.min(Math.max(pos, 0), (info.height - info.clientHeight));
-            this.setScrollPos(null, pos);
-        }
+        this._ace.execCommand('centerselection');
     };
 
     /**
@@ -835,7 +816,7 @@ define(function (require, exports, module) {
      * @return {boolean} True if there's a text selection; false if there's just an insertion point
      */
     Editor.prototype.hasSelection = function () {
-        return this._codeMirror.somethingSelected();
+        return !this._ace.selection.isEmpty();
     };
     
     /**
@@ -845,9 +826,7 @@ define(function (require, exports, module) {
      * @return {!{start:{line:number, ch:number}, end:{line:number, ch:number}}}
      */
     Editor.prototype.getSelection = function () {
-        var selStart = this._codeMirror.getCursor(true),
-            selEnd   = this._codeMirror.getCursor(false);
-        return { start: selStart, end: selEnd };
+        return this._ace.selection.getRange();
     };
     
     /**
@@ -855,7 +834,7 @@ define(function (require, exports, module) {
      * selection spans multiple lines (does NOT reflect the Document's line-endings style).
      */
     Editor.prototype.getSelectedText = function () {
-        return this._codeMirror.getSelection();
+        return this._ace.getCopyText();
     };
     
     /**
@@ -869,7 +848,7 @@ define(function (require, exports, module) {
      * @param {number} centerOptions Option value, or 0 for no options.
      */
     Editor.prototype.setSelection = function (start, end, center, centerOptions) {
-        this._codeMirror.setSelection(start, end);
+        this._ace.selection.setRange({start:start, end:end});
         if (center) {
             this.centerOnCursor(centerOptions);
         }
@@ -882,9 +861,9 @@ define(function (require, exports, module) {
      * @param {!{line:number, ch:number}}
      */
     Editor.prototype.selectWordAt = function (pos) {
-        var line = this.document.getLine(pos.line),
-            start = pos.ch,
-            end = pos.ch;
+        var line = this.document.getLine(pos.row),
+            start = pos.column,
+            end = pos.column;
         
         function isWordChar(ch) {
             return (/\w/).test(ch) || ch.toUpperCase() !== ch.toLowerCase();
@@ -896,7 +875,7 @@ define(function (require, exports, module) {
         while (end < line.length && isWordChar(line.charAt(end))) {
             ++end;
         }
-        this.setSelection({line: pos.line, ch: start}, {line: pos.line, ch: end});
+        this.setSelection({row: pos.row, column: start}, {row: pos.row, column: end});
     };
     
     /**
@@ -904,7 +883,7 @@ define(function (require, exports, module) {
      * @returns {!number}
      */
     Editor.prototype.lineCount = function () {
-        return this._codeMirror.lineCount();
+        return this._ace.session.getLength();
     };
     
     /**
@@ -977,7 +956,7 @@ define(function (require, exports, module) {
      * @returns {!HTMLDivElement} The editor's root DOM node.
      */
     Editor.prototype.getRootElement = function () {
-        return this._codeMirror.getWrapperElement();
+        return this._ace.container;
     };
     
     /**
@@ -995,8 +974,8 @@ define(function (require, exports, module) {
      * @returns {{x:number, y:number}} The x,y scroll position in pixels
      */
     Editor.prototype.getScrollPos = function () {
-        var scrollInfo = this._codeMirror.getScrollInfo();
-        return { x: scrollInfo.left, y: scrollInfo.top };
+        var renderer = this._ace.renderer;
+        return { x: renderer.getScrollLeft(), y: renderer.getScrollTop() };
     };
     
     /**
@@ -1005,7 +984,9 @@ define(function (require, exports, module) {
      * @param {number} y scrollTop position in pixels
      */
     Editor.prototype.setScrollPos = function (x, y) {
-        this._codeMirror.scrollTo(x, y);
+        var renderer = this._ace.renderer;
+        renderer.scrollToX(x);
+        renderer.scrollToY(y);
     };
     
     /*
@@ -1013,7 +994,7 @@ define(function (require, exports, module) {
      * @returns {number} Height of the text in pixels
      */
     Editor.prototype.getTextHeight = function () {
-        return this._codeMirror.defaultTextHeight();
+        return this._ace.renderer.lineHeight;
     };
     
     /**
@@ -1283,7 +1264,7 @@ define(function (require, exports, module) {
         
         _duringFocus = true;
         try {
-            this._codeMirror.focus();
+            this._ace.focus();
         } finally {
             _duringFocus = false;
         }
@@ -1302,12 +1283,12 @@ define(function (require, exports, module) {
         // If focus is currently in a child of the CodeMirror editor (e.g. in an inline widget), but not in
         // the CodeMirror input field itself, remember the focused item so we can restore focus after the 
         // refresh (which might cause the widget to be removed from the display list temporarily).
-        var focusedItem = window.document.activeElement,
-            restoreFocus = $.contains(this._codeMirror.getScrollerElement(), focusedItem);
-        this._codeMirror.refresh();
-        if (restoreFocus) {
-            focusedItem.focus();
-        }
+        // var focusedItem = window.document.activeElement,
+        //     restoreFocus = $.contains(this._codeMirror.getScrollerElement(), focusedItem);
+        this._ace.renderer.$textLayer.checkForSizeChanges();
+        // if (restoreFocus) {
+        //     focusedItem.focus();
+        // }
     };
     
     /**
@@ -1323,12 +1304,12 @@ define(function (require, exports, module) {
     
     /** Undo the last edit. */
     Editor.prototype.undo = function () {
-        this._codeMirror.undo();
+        this._ace.undo();
     };
     
     /** Redo the last un-done edit. */
     Editor.prototype.redo = function () {
-        this._codeMirror.redo();
+        this._ace.redo();
     };
     
     /**
@@ -1370,27 +1351,19 @@ define(function (require, exports, module) {
      *     See {@link LanguageManager#getLanguageForPath()} and {@link Language#getMode()}.
      */
     Editor.prototype.getModeForSelection = function () {
-        // Check for mixed mode info
-        var sel         = this.getSelection(),
-            outerMode   = this._codeMirror.getMode(),
-            startMode   = TokenUtils.getModeAt(this._codeMirror, sel.start),
-            isMixed     = (outerMode.name !== startMode.name);
-
-        if (isMixed) {
-            // If mixed mode, check that mode is the same at start & end of selection
-            if (sel.start.line !== sel.end.line || sel.start.ch !== sel.end.ch) {
-                var endMode = TokenUtils.getModeAt(this._codeMirror, sel.end);
-                
-                if (startMode.name !== endMode.name) {
-                    return null;
-                }
+        var scope = this._ace.session.$mode.$id || "";
+        scope = scope.split("/").pop();
+        if (this._ace.session.$mode.$modes) {
+            var c = this._ace.getCursorPosition()
+            var state = this._ace.session.getState(c.row);
+            if (state.substring) {
+                if (state.substring(0, 3) == "js-")
+                    scope = "javascript";
+                else if (state.substring(0, 4) == "css-")
+                    scope = "css";
             }
-
-            return startMode.name;
-        } else {
-            // Mode does not vary: just use the editor-wide mode
-            return this._codeMirror.getOption("mode");
         }
+        return scope;
     };
     
     Editor.prototype.getLanguageForSelection = function () {
@@ -1458,7 +1431,7 @@ define(function (require, exports, module) {
      */
     function _setEditorOption(value, cmOption) {
         _instances.forEach(function (editor) {
-            editor._codeMirror.setOption(cmOption, value);
+            editor._ace.setOption(cmOption, value);
             $(editor).triggerHandler("optionChange", [cmOption, value]);
         });
     }
@@ -1481,8 +1454,9 @@ define(function (require, exports, module) {
      */
     Editor.setUseTabChar = function (value) {
         _useTabChar = value;
-        _setEditorOptionAndPref(value, "indentWithTabs", "useTabChar");
-        _setEditorOption(_useTabChar ? _tabSize : _spaceUnits, "indentUnit");
+        _setEditorOption(!value, "useSoftTabs");
+        _prefs.setValue("useTabChar", value);
+        //_setEditorOption(_useTabChar ? _tabSize : _spaceUnits, "indentUnit");
     };
     
     /** @type {boolean} Gets whether all Editors use tab characters (vs. spaces) when inserting new text */
@@ -1497,7 +1471,7 @@ define(function (require, exports, module) {
     Editor.setTabSize = function (value) {
         _tabSize = value;
         _setEditorOptionAndPref(value, "tabSize", "tabSize");
-        _setEditorOption(value, "indentUnit");
+        //_setEditorOption(value, "indentUnit");
     };
     
     /** @type {number} Get indent unit  */
@@ -1511,7 +1485,7 @@ define(function (require, exports, module) {
      */
     Editor.setSpaceUnits = function (value) {
         _spaceUnits = value;
-        _setEditorOptionAndPref(value, "indentUnit", "spaceUnits");
+        _setEditorOptionAndPref(value, "tabSize", "spaceUnits");
     };
     
     /** @type {number} Get indentation width */
@@ -1553,7 +1527,7 @@ define(function (require, exports, module) {
      */
     Editor.setShowActiveLine = function (value) {
         _styleActiveLine = value;
-        _setEditorOptionAndPref(value, "styleActiveLine", "styleActiveLine");
+        _setEditorOptionAndPref(value, "highlightActiveLine", "styleActiveLine");
     };
     
     /** @type {boolean} Returns true if show active line is enabled for all editors */
@@ -1567,7 +1541,7 @@ define(function (require, exports, module) {
      */
     Editor.setWordWrap = function (value) {
         _wordWrap = value;
-        _setEditorOptionAndPref(value, "lineWrapping", "wordWrap");
+        _setEditorOptionAndPref(value, "wrap", "wordWrap");
     };
     
     /** @type {boolean} Returns true if word wrap is enabled for all editors */

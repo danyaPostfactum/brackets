@@ -1357,6 +1357,8 @@ define(function (require, exports, module) {
      * text: Array<string>}} changeList - the document changes (since last change or cumlative?)
      */
     function trackChange(changeList) {
+        // todo ace
+        return;
         var changed = documentChanges;
         if (changed === null) {
             documentChanges = changed = {from: changeList.from.line, to: changeList.from.line};

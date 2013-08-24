@@ -151,8 +151,8 @@ define(function (require, exports, module) {
      * additional explicit hint request.
      */
     TagHints.prototype.insertHint = function (completion) {
-        var start = {line: -1, ch: -1},
-            end = {line: -1, ch: -1},
+        var start = {row: -1, column: -1},
+            end = {row: -1, column: -1},
             cursor = this.editor.getCursorPos(),
             charCount = 0;
 
@@ -165,15 +165,15 @@ define(function (require, exports, module) {
             }
         }
 
-        end.line = start.line = cursor.line;
-        start.ch = cursor.ch - this.tagInfo.position.offset;
-        end.ch = start.ch + charCount;
+        end.row = start.row = cursor.row;
+        start.column = cursor.column - this.tagInfo.position.offset;
+        end.column = start.column + charCount;
 
         if (this.exclusion || completion !== this.tagInfo.tagName) {
-            if (start.ch !== end.ch) {
+            if (start.column !== end.column) {
                 this.editor.document.replaceRange(completion, start, end);
             } else {
-                this.editor.document.replaceRange(completion, start);
+                this.editor.document.replaceRange(completion, start, start);
             }
             this.exclusion = null;
         }
@@ -458,8 +458,8 @@ define(function (require, exports, module) {
      */
     AttrHints.prototype.insertHint = function (completion) {
         var cursor = this.editor.getCursorPos(),
-            start = {line: -1, ch: -1},
-            end = {line: -1, ch: -1},
+            start = {row: -1, column: -1},
+            end = {row: -1, column: -1},
             tokenType = this.tagInfo.position.tokenType,
             offset = this.tagInfo.position.offset,
             charCount = 0,
@@ -510,27 +510,27 @@ define(function (require, exports, module) {
             }
         }
 
-        end.line = start.line = cursor.line;
-        start.ch = cursor.ch - offset;
-        end.ch = start.ch + charCount;
+        end.row = start.row = cursor.row;
+        start.column = cursor.column - offset;
+        end.column = start.column + charCount;
 
         if (shouldReplace) {
-            if (start.ch !== end.ch) {
+            if (start.column !== end.column) {
                 this.editor.document.replaceRange(completion, start, end);
             } else {
-                this.editor.document.replaceRange(completion, start);
+                this.editor.document.replaceRange(completion, start, start);
             }
         }
 
         if (insertedName) {
-            this.editor.setCursorPos(start.line, start.ch + completion.length - 1);
+            this.editor.setCursorPos(start.row, start.column + completion.length - 1);
 
             // Since we're now inside the double-quotes we just inserted,
             // immediately pop up the attribute value hint.
             return true;
         } else if (tokenType === HTMLUtils.ATTR_VALUE && this.tagInfo.attr.hasEndQuote) {
             // Move the cursor to the right of the existing end quote after value insertion.
-            this.editor.setCursorPos(start.line, start.ch + completion.length + 1);
+            this.editor.setCursorPos(start.row, start.column + completion.length + 1);
         }
         
         return false;

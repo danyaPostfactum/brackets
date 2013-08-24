@@ -169,7 +169,7 @@ define(function (require, exports, module) {
                         var character = lineTd.data("character");
         
                         var editor = EditorManager.getCurrentFullEditor();
-                        editor.setCursorPos(line - 1, character - 1, true);
+                        editor.setCursorPos({row: line - 1, column: character - 1}, true);
                         EditorManager.focusEditor();
                     });
                 

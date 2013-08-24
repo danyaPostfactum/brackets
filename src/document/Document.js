@@ -220,7 +220,7 @@ define(function (require, exports, module) {
         if (this._masterEditor) {
             // CodeMirror.getValue() always returns text with LF line endings; fix up to match line
             // endings preferred by the document, if necessary
-            var codeMirrorText = this._masterEditor._codeMirror.getValue();
+            var codeMirrorText = this._masterEditor._ace.getValue();
             if (useOriginalLineEndings) {
                 if (this._lineEndings === FileUtils.LINE_ENDINGS_CRLF) {
                     return codeMirrorText.replace(/\n/g, "\r\n");
@@ -245,7 +245,7 @@ define(function (require, exports, module) {
      */
     Document.prototype.setText = function (text) {
         this._ensureMasterEditor();
-        this._masterEditor._codeMirror.setValue(text);
+        this._masterEditor._ace.setValue(text);
         // _handleEditorChange() triggers "change" event
     };
     
@@ -312,7 +312,18 @@ define(function (require, exports, module) {
      */
     Document.prototype.replaceRange = function (text, start, end, origin) {
         this._ensureMasterEditor();
-        this._masterEditor._codeMirror.replaceRange(text, start, end, origin);
+        var range = {
+            isEmpty: function() {
+                return (this.start.row === this.end.row && this.start.column === this.end.column);
+            },
+            isMultiLine: function() {
+                return (this.start.row !== this.end.row);
+            },
+            start: start,
+            end: end ? end : start
+        };
+        return this._masterEditor._ace.session.replace(range, text);
+        // todo handle origin
         // _handleEditorChange() triggers "change" event
     };
     
@@ -324,7 +335,7 @@ define(function (require, exports, module) {
      */
     Document.prototype.getRange = function (start, end) {
         this._ensureMasterEditor();
-        return this._masterEditor._codeMirror.getRange(start, end);
+        return this._masterEditor._ace.session.getTextRange({start: start, end: end});
     };
     
     /**
@@ -334,7 +345,7 @@ define(function (require, exports, module) {
      */
     Document.prototype.getLine = function (lineNum) {
         this._ensureMasterEditor();
-        return this._masterEditor._codeMirror.getLine(lineNum);
+        return this._masterEditor._ace.session.getLine(lineNum);
     };
     
     /**
@@ -346,7 +357,8 @@ define(function (require, exports, module) {
         this._ensureMasterEditor();
         
         var self = this;
-        self._masterEditor._codeMirror.operation(doOperation);
+        // todo
+        doOperation();
     };
     
     /**
@@ -355,15 +367,17 @@ define(function (require, exports, module) {
      * @private
      */
     Document.prototype._handleEditorChange = function (event, editor, changeList) {
-        // On any change, mark the file dirty. In the future, we should make it so that if you
-        // undo back to the last saved state, we mark the file clean.
-        var wasDirty = this.isDirty;
-        this.isDirty = !editor._codeMirror.isClean();
         
-        // If file just became dirty, notify listeners, and add it to working set (if not already there)
-        if (wasDirty !== this.isDirty) {
-            $(exports).triggerHandler("_dirtyFlagChange", [this]);
-        }
+        setTimeout(function(){
+            // On any change, mark the file dirty. In the future, we should make it so that if you
+            // undo back to the last saved state, we mark the file clean.
+            var wasDirty = this.isDirty;
+            this.isDirty = !editor._ace.session.$undoManager.isClean();
+            // If file just became dirty, notify listeners, and add it to working set (if not already there)
+            if (wasDirty !== this.isDirty) {
+                $(exports).triggerHandler("_dirtyFlagChange", [this]);
+            }
+        }.bind(this), 0);
         
         // Notify that Document's text has changed
         // TODO: This needs to be kept in sync with SpecRunnerUtils.createMockDocument(). In the
@@ -378,7 +392,7 @@ define(function (require, exports, module) {
     Document.prototype._markClean = function () {
         this.isDirty = false;
         if (this._masterEditor) {
-            this._masterEditor._codeMirror.markClean();
+            this._masterEditor._ace.session.$undoManager.markClean();
         }
         $(exports).triggerHandler("_dirtyFlagChange", this);
     };
