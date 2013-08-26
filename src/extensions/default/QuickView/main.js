@@ -137,12 +137,12 @@ define(function (require, exports, module) {
      * its matching text in the editor.
      */
     function showPreview() {
-        
-        var cm = popoverState.editor._codeMirror;
-        popoverState.marker = cm.markText(
-            popoverState.start,
-            popoverState.end,
-            {className: "quick-view-highlight"}
+        // todo ace
+        return;
+        var ace = popoverState.editor._ace;
+        popoverState.marker = ace.session.addMarker(
+            {start: popoverState.start, end: popoverState.end},
+            "quick-view-highlight"
         );
         
         $previewContent.append(popoverState.content);
@@ -330,10 +330,10 @@ define(function (require, exports, module) {
 
         var gradientMatch = execGradientMatch(line),
             match = gradientMatch.match || execColorMatch(line),
-            cm = editor._codeMirror;
+            ace = editor._ace;
 
         while (match) {
-            if (pos.ch >= match.index && pos.ch <= match.index + match[0].length) {
+            if (pos.column >= match.index && pos.column <= match.index + match[0].length) {
                 // build the css for previewing the gradient from the regex result
                 var previewCSS = gradientMatch.prefix + (gradientMatch.colorValue || match[0]);
                 
@@ -344,12 +344,12 @@ define(function (require, exports, module) {
                     
                 var preview = "<div class='color-swatch' style='background:" + previewCSS + "'>" +
                               "</div>";
-                var startPos = {line: pos.line, ch: match.index},
-                    endPos = {line: pos.line, ch: match.index + match[0].length},
-                    startCoords = cm.charCoords(startPos),
+                var startPos = {row: pos.row, column: match.index},
+                    endPos = {row: pos.row, column: match.index + match[0].length},
+                    startCoords = ace.renderer.textToScreenCoordinates(startPos.row, startPos.column),
                     xPos;
                 
-                xPos = (cm.charCoords(endPos).left - startCoords.left) / 2 + startCoords.left;
+                xPos = (ace.renderer.textToScreenCoordinates(endPos.row, endPos.column).pageX - startCoords.pageX) / 2 + startCoords.pageX;
                 
                 return {
                     start: startPos,
@@ -376,19 +376,19 @@ define(function (require, exports, module) {
     // Image preview provider -------------------------------------------------
     
     function imagePreviewProvider(editor, pos, token, line) {
-        var cm = editor._codeMirror;
+        var ace = editor._ace;
         
         // Check for image name
         var urlRegEx = /url\(([^\)]*)\)/gi,
             tokenString,
             urlMatch;
 
-        if (token.type === "string") {
+        if (token && token.type === "string") {
             tokenString = token.string;
         } else {
             urlMatch = urlRegEx.exec(line);
             while (urlMatch) {
-                if (pos.ch >= urlMatch.index && pos.ch <= urlMatch.index + urlMatch[0].length) {
+                if (pos.column >= urlMatch.index && pos.column <= urlMatch.index + urlMatch[0].length) {
                     tokenString = urlMatch[1];
                     break;
                 }
@@ -413,19 +413,19 @@ define(function (require, exports, module) {
                 }
                 
                 if (urlMatch) {
-                    sPos = {line: pos.line, ch: urlMatch.index};
-                    ePos = {line: pos.line, ch: urlMatch.index + urlMatch[0].length};
+                    sPos = {row: pos.row, column: urlMatch.index};
+                    ePos = {row: pos.row, column: urlMatch.index + urlMatch[0].length};
                 } else {
-                    sPos = {line: pos.line, ch: token.start};
-                    ePos = {line: pos.line, ch: token.end};
+                    sPos = {row: pos.row, column: token.start};
+                    ePos = {row: pos.row, column: token.end};
                 }
                 
                 if (imgPath) {
                     var imgPreview = "<div class='image-preview'>"          +
                                      "    <img src=\"" + imgPath + "\">"    +
                                      "</div>";
-                    var coord = cm.charCoords(sPos);
-                    var xpos = (cm.charCoords(ePos).left - coord.left) / 2 + coord.left;
+                    var coord = ace.renderer.textToScreenCoordinates(sPos.row, sPos.column);
+                    var xpos = (ace.renderer.textToScreenCoordinates(ePos).pageX - coord.pageX) / 2 + coord.pageX;
                     
                     var showHandler = function () {
                         // Hide the preview container until the image is loaded.
@@ -470,7 +470,7 @@ define(function (require, exports, module) {
      */
     function queryPreviewProviders(editor, pos, token) {
         
-        var line = editor.document.getLine(pos.line);
+        var line = editor.document.getLine(pos.row);
         
         // FUTURE: Support plugin providers. For now we just hard-code...
         var popover = colorAndGradientPreviewProvider(editor, pos, token, line) ||
@@ -530,13 +530,13 @@ define(function (require, exports, module) {
                 editor = fullEditor;
             }
         }
-        
-        if (editor && editor._codeMirror) {
+        // todo
+        if (editor && editor._ace) {
             // Find char mouse is over
-            var cm = editor._codeMirror;
-            var pos = cm.coordsChar({left: event.clientX, top: event.clientY});
+            var ace = editor._ace;
+            var pos = ace.renderer.screenToTextCoordinates(event.clientX, event.clientY);
             
-            if (lastPos && lastPos.line === pos.line && lastPos.ch === pos.ch) {
+            if (lastPos && lastPos.row === pos.row && lastPos.column === pos.column) {
                 return;  // bail if mouse is on same char as last event
             }
             lastPos = pos;
@@ -556,7 +556,7 @@ define(function (require, exports, module) {
             }
             
             // Query providers for a new popoverState
-            var token = cm.getTokenAt(pos, true);
+            var token = ace.session.getTokenAt(pos, true);
             popoverState = queryPreviewProviders(editor, pos, token);
             
             if (popoverState) {

@@ -311,6 +311,9 @@ define(function (require, exports, module) {
         if (editor.getModeForSelection() !== "html") {
             return createTagInfo();
         }
+
+        // todo ace
+        return createTagInfo();
         
         //check and see where we are in the tag
         if (ctx.token.value.length > 0 && ctx.token.value.trim().length === 0) {
@@ -328,7 +331,7 @@ define(function (require, exports, module) {
                 // pos has whitespace before it and non-whitespace after it, so use token after
                 ctx.token = testToken;
 
-                if (ctx.token.type === "meta.tag-name") {
+                if (ctx.token.type === "meta.tag.name") {
                     // Check to see if the cursor is just before a "<" but not in any tag.
                     if (ctx.token.string.charAt(0) === "<") {
                         return createTagInfo();
@@ -394,7 +397,7 @@ define(function (require, exports, module) {
             }
         }
         
-        if (ctx.token.type === "meta.tag-name" || (ctx.token.type === "text" && ctx.token.value.substring(ctx.token.value.length-1) === '<')) {
+        if (ctx.token.type === "meta.tag.name" || (ctx.token.type === "text" && ctx.token.value.substring(ctx.token.value.length-1) === '<')) {
             // Check if the user just typed a white space after "<" that made an existing tag invalid.
             if (ctx.token.value.match(/^<\s+/) && offset !== 1) {
                 return createTagInfo();

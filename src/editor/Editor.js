@@ -252,7 +252,7 @@ define(function (require, exports, module) {
     }
 
     function _handleKeyEvents(jqEvent, editor, event) {
-        _checkElectricChars(jqEvent, editor, event);
+        //_checkElectricChars(jqEvent, editor, event);
 
         // Pass the key event to the code hint manager. It may call preventDefault() on the event.
         CodeHintManager.handleKeyEvent(editor, event);
@@ -359,6 +359,11 @@ define(function (require, exports, module) {
         wrapper.style.left = wrapper.style.right = 0;
         container.appendChild(wrapper);
         this._ace = ace.edit(wrapper);
+        // temporary polyfill
+        this._ace.renderer.scrollTo = function(x, y) {
+            this.scrollToX(x);
+            this.scrollToY(y);
+        };
         this._ace.setTheme('ace/theme/dreamweaver');
         this._ace.setShowPrintMargin(false);
         this._ace.container.style.lineHeight = '1.4';
@@ -658,30 +663,32 @@ define(function (require, exports, module) {
         // our purposes, though, it's convenient to treat it as an event internally,
         // so we bridge it to jQuery events the same way we do ordinary CodeMirror 
         // events.
-        // this._codeMirror.setOption("onKeyEvent", function (instance, event) {
-        //     $(self).triggerHandler("keyEvent", [self, event]);
-        //     return event.defaultPrevented;   // false tells CodeMirror we didn't eat the event
-        // });
+        $(this._ace.textInput.getElement()).on('keydown keypress keyup', function (event) {
+            $(self).triggerHandler("keyEvent", [self, event]);
+            //return event.defaultPrevented;   // false tells CodeMirror we didn't eat the event
+        });
         
         // // FUTURE: if this list grows longer, consider making this a more generic mapping
         // // NOTE: change is a "private" event--others shouldn't listen to it on Editor, only on
         // // Document
         this._ace.on("change", function (e) {
-            $(self).triggerHandler("change", [self, e.data]);
+            setTimeout(function(){
+                $(self).triggerHandler("change", [self, e.data]);
+            }, 0);
         });
         this._ace.on("changeSelection", function (e) {
             $(self).triggerHandler("cursorActivity", [self]);
         });
-        // this._codeMirror.on("scroll", function (instance) {
-        //     // If this editor is visible, close all dropdowns on scroll.
-        //     // (We don't want to do this if we're just scrolling in a non-visible editor
-        //     // in response to some document change event.)
-        //     if (self.isFullyVisible()) {
-        //         Menus.closeAll();
-        //     }
+        this._ace.on("changeScrollTop", function (instance) {
+            // If this editor is visible, close all dropdowns on scroll.
+            // (We don't want to do this if we're just scrolling in a non-visible editor
+            // in response to some document change event.)
+            if (self.isFullyVisible()) {
+                Menus.closeAll();
+            }
 
-        //     $(self).triggerHandler("scroll", [self]);
-        // });
+            $(self).triggerHandler("scroll", [self]);
+        });
 
         // // Convert CodeMirror onFocus events to EditorManager activeEditorChanged
         this._ace.on("focus", function () {
@@ -984,9 +991,7 @@ define(function (require, exports, module) {
      * @param {number} y scrollTop position in pixels
      */
     Editor.prototype.setScrollPos = function (x, y) {
-        var renderer = this._ace.renderer;
-        renderer.scrollToX(x);
-        renderer.scrollToY(y);
+        this._ace.renderer.scrollToX(x, y);
     };
     
     /*

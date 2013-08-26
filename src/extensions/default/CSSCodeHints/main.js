@@ -217,8 +217,8 @@ define(function (require, exports, module) {
     CssPropHints.prototype.insertHint = function (hint) {
         var offset = this.info.offset,
             cursor = this.editor.getCursorPos(),
-            start = {line: -1, ch: -1},
-            end = {line: -1, ch: -1},
+            start = {row: -1, column: -1},
+            end = {row: -1, column: -1},
             keepHints = false,
             adjustCursor = false,
             newCursor,
@@ -228,8 +228,8 @@ define(function (require, exports, module) {
             return false;
         }
         
-        start.line = end.line = cursor.line;
-        start.ch = cursor.ch - offset;
+        start.row = end.row = cursor.row;
+        start.column = cursor.column - offset;
 
         if (this.info.context === CSSUtils.PROP_NAME) {
             keepHints = true;
@@ -238,16 +238,16 @@ define(function (require, exports, module) {
                 // It's a new insertion, so append a colon and set keepHints
                 // to show property value hints.
                 hint += ":";
-                end.ch = start.ch;
-                end.ch += offset;
+                end.column = start.column;
+                end.column += offset;
                     
                 if (this.exclusion) {
                     // Append a space to the end of hint to insert and then adjust
                     // the cursor before that space.
                     hint += " ";
                     adjustCursor = true;
-                    newCursor = { line: cursor.line,
-                                  ch: start.ch + hint.length - 1 };
+                    newCursor = { row: cursor.row,
+                                  column: start.column + hint.length - 1 };
                     this.exclusion = null;
                 }
             } else {
@@ -255,17 +255,17 @@ define(function (require, exports, module) {
                 // So we need to check whether there is an existing colon following 
                 // the current property name. If a colon already exists, then we also 
                 // adjust the cursor position and show code hints for property values.
-                end.ch = start.ch + this.info.name.length;
-                ctx = TokenUtils.getInitialContext(this.editor._codeMirror, cursor);
-                if (ctx.token.string.length > 0 && !ctx.token.string.match(/\S/)) {
+                end.column = start.column + this.info.name.length;
+                ctx = TokenUtils.getInitialContext(this.editor._ace, cursor);
+                if (ctx.token.value.length > 0 && !ctx.token.value.match(/\S/)) {
                     // We're at the very beginning of a property name. So skip it 
                     // before we locate the colon following it.
                     TokenUtils.moveNextToken(ctx);
                 }
-                if (TokenUtils.moveSkippingWhitespace(TokenUtils.moveNextToken, ctx) && ctx.token.string === ":") {
+                if (TokenUtils.moveSkippingWhitespace(TokenUtils.moveNextToken, ctx) && ctx.token.value === ":") {
                     adjustCursor = true;
-                    newCursor = { line: cursor.line,
-                                  ch: cursor.ch + (hint.length - this.info.name.length) };
+                    newCursor = { row: cursor.row,
+                                  column: cursor.column + (hint.length - this.info.name.length) };
                 } else {
                     hint += ":";
                 }
@@ -273,10 +273,10 @@ define(function (require, exports, module) {
         } else {
             if (!this.info.isNewItem && this.info.index !== -1) {
                 // Replacing an existing property value or partially typed value
-                end.ch = start.ch + this.info.values[this.info.index].length;
+                end.column = start.column + this.info.values[this.info.index].length;
             } else {
                 // Inserting a new property value
-                end.ch = start.ch;
+                end.column = start.column;
             }
 
             var parenMatch = hint.match(/\(.*?\)/);
@@ -284,8 +284,8 @@ define(function (require, exports, module) {
                 // value has (...), so place cursor inside opening paren
                 // and keep hints open
                 adjustCursor = true;
-                newCursor = { line: cursor.line,
-                              ch: start.ch + parenMatch.index + 1 };
+                newCursor = { row: cursor.row,
+                              column: start.column + parenMatch.index + 1 };
                 keepHints = true;
             }
         }
@@ -294,7 +294,7 @@ define(function (require, exports, module) {
         // directly to replace the range instead of using the Document, as we should. The
         // reason is due to a flaw in our current document synchronization architecture when
         // inline editors are open.
-        this.editor._codeMirror.replaceRange(hint, start, end);
+        this.editor.document.replaceRange(hint, start, end);
         
         if (adjustCursor) {
             this.editor.setCursorPos(newCursor);

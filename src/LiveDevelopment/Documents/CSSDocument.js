@@ -149,8 +149,8 @@ define(function CSSDocumentModule(require, exports, module) {
 
     CSSDocument.prototype.updateHighlight = function () {
         if (Inspector.config.highlight && this.editor) {
-            var codeMirror = this.editor._codeMirror;
-            var selector = CSSUtils.findSelectorAtDocumentPos(this.editor, codeMirror.getCursor());
+            var ace = this.editor._ace;
+            var selector = CSSUtils.findSelectorAtDocumentPos(this.editor, ace.getCursorPosition());
             if (selector) {
                 HighlightAgent.rule(selector);
             } else {
@@ -196,9 +196,10 @@ define(function CSSDocumentModule(require, exports, module) {
     /** Triggered by the HighlightAgent to highlight a node in the editor */
     CSSDocument.prototype.onHighlight = function onHighlight(event, node) {
         // clear an existing highlight
+        var ace = this.editor._ace;
         var i;
         for (i in this._highlight) {
-            this._highlight[i].clear();
+            ace.session.removeMark(this._highlight[i]);
         }
         this._highlight = [];
         if (!node || !node.location) {
@@ -208,14 +209,14 @@ define(function CSSDocumentModule(require, exports, module) {
         // WebInspector Command: CSS.getMatchedStylesForNode
         Inspector.CSS.getMatchedStylesForNode(node.nodeId, function onGetMatchesStyles(res) {
             // res = {matchedCSSRules, pseudoElements, inherited}
-            var codeMirror = this.editor._codeMirror;
+            var ace = this.editor._ace;
             var i, rule, from, to;
             for (i in res.matchedCSSRules) {
                 rule = res.matchedCSSRules[i];
                 if (rule.ruleId && rule.ruleId.styleSheetId === this.styleSheet.styleSheetId) {
-                    from = codeMirror.posFromIndex(rule.selectorRange.start);
-                    to = codeMirror.posFromIndex(rule.style.range.end);
-                    this._highlight.push(codeMirror.markText(from, to, { className: "highlight" }));
+                    from = ace.session.doc.indexToPosition(rule.selectorRange.start);
+                    to = ace.session.doc.indexToPosition(rule.style.range.end);
+                    this._highlight.push(ace.session.addMarker({start: from, end: to}, "highlight"));
                 }
             }
         }.bind(this));

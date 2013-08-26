@@ -51,51 +51,66 @@ define(function (require, exports, module) {
     /**
      * @private
      * Checks if the current cursor position is inside the property name context
-     * @param {editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}} context
+     * @param {editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}} context
      * @return {boolean} true if the context is in property name
      */
     function _isInPropName(ctx) {
-        var state,
-            lastToken;
-        if (!ctx || !ctx.token || !ctx.token.state || ctx.token.type === "comment") {
+        if (!ctx) {
             return false;
         }
 
-        state = ctx.token.state.localState || ctx.token.state;
-        
-        if (!state.stack || state.stack.length < 1) {
-            return false;
+        var inPropName = ctx.token && ctx.token.type == "support.type.property-name.css";
+
+        if (!inPropName) {
+            var ctxClone = $.extend({}, ctx);
+            ctxClone.pos = $.extend({}, ctx.pos);
+            var delimiters = ['punctuation.terminator.rule.css', 'punctuation.section.property-list.css'];
+            do { TokenUtils.movePrevToken(ctxClone) } while (ctxClone.token && ctxClone.token.type == 'text');
+            inPropName = delimiters.indexOf(ctxClone.token.type) !== -1;
         }
-        
-        lastToken = state.stack[state.stack.length - 1];
-        return (lastToken === "{" || lastToken === "rule");
+
+        return inPropName;
     }
     
     /**
      * @private
      * Checks if the current cursor position is inside the property value context
-     * @param {editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}} context
+     * @param {editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}} context
      * @return {boolean} true if the context is in property value
      */
     function _isInPropValue(ctx) {
-        var state;
-        if (!ctx || !ctx.token || !ctx.token.state || ctx.token.type === "comment" ||
-                ctx.token.type === "property" || ctx.token.type === "property error" || ctx.token.type === "tag") {
+
+        if (!ctx) {
             return false;
         }
 
-        state = ctx.token.state.localState || ctx.token.state;
-        
-        if (!state.stack || state.stack.length < 2) {
-            return false;
+        var inPropValue = ctx.token && ctx.token.type == 'punctuation.separator.key-value.css';
+
+        if (!inPropValue) {
+           var ctxClone = $.extend({}, ctx);
+            ctxClone.pos = $.extend({}, ctx.pos);
+            var delimiters = ['punctuation.terminator.rule.css', 'punctuation.section.property-list.css'];
+            while (true) {
+                TokenUtils.movePrevToken(ctxClone);
+                if (!ctxClone.token)
+                    break;
+                if (delimiters.indexOf(ctxClone.token.type) !== -1) {
+                    break;
+                }
+                if (ctxClone.token.type == 'punctuation.separator.key-value.css') {
+                    inPropValue = true;
+                    break;
+                }
+            }
         }
-        return (state.stack[state.stack.length - 1] === "propertyValue" && state.stack[state.stack.length - 2] === "rule");
+
+        return inPropValue;
     }
     
     /**
      * @private
      * Checks if the current cursor position is inside an @import rule
-     * @param {editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}} context
+     * @param {editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}} context
      * @return {boolean} true if the context is in property value
      */
     function _isInImportRule(ctx) {
@@ -149,23 +164,24 @@ define(function (require, exports, module) {
      * @private
      * Scans backwards from the current context and returns the name of the property if there is 
      * a valid one. 
-     * @param {editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}} context
+     * @param {editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}} context
      * @return {string} the property name of the current rule.
      */
     function _getPropNameStartingFromPropValue(ctx) {
         var ctxClone = $.extend({}, ctx);
+
+        var delimiters = ['punctuation.terminator.rule.css', 'punctuation.section.property-list.css'];
         do {
             // If we get a property name or "{" or ";" before getting a colon, then we don't 
             // have a valid property name. Just return an empty string.
-            if (ctxClone.token.type === "property" || ctxClone.token.type === "property error" ||
-                    ctxClone.token.string === "{" || ctxClone.token.string === ";") {
+            if (delimiters.indexOf(ctxClone.token.type) !== -1 || ctxClone.token.type == 'support.type.property-name.css') {
                 return "";
             }
-        } while (ctxClone.token.string !== ":" && TokenUtils.moveSkippingWhitespace(TokenUtils.movePrevToken, ctxClone));
+        } while (ctxClone.token.type !== 'punctuation.separator.key-value.css' && TokenUtils.moveSkippingWhitespace(TokenUtils.movePrevToken, ctxClone));
         
-        if (ctxClone.token.string === ":" && TokenUtils.moveSkippingWhitespace(TokenUtils.movePrevToken, ctxClone) &&
-                (ctxClone.token.type === "property" || ctxClone.token.type === "property error")) {
-            return ctxClone.token.string;
+        if (ctxClone.token.type === 'punctuation.separator.key-value.css' && TokenUtils.moveSkippingWhitespace(TokenUtils.movePrevToken, ctxClone) &&
+                (ctxClone.token.type === 'support.type.property-name.css')) {
+            return ctxClone.token.value;
         }
         
         return "";
@@ -174,7 +190,7 @@ define(function (require, exports, module) {
     /**
      * @private
      * Gets all of the space/comma seperated tokens before the the current cursor position.
-     * @param {editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}} context
+     * @param {editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}} context
      * @return {?Array.<string>} An array of all the space/comma seperated tokens before the
      *    current cursor position
      */
@@ -182,20 +198,20 @@ define(function (require, exports, module) {
         var lastValue = "",
             curValue,
             propValues = [];
-        while (ctx.token.string !== ":" && TokenUtils.movePrevToken(ctx)) {
-            if (ctx.token.type === "property" || ctx.token.type === "property error" || ctx.token.type === "tag" ||
-                    ctx.token.string === ":" || ctx.token.string === "{" ||
-                    ctx.token.string === ";") {
+        while (ctx.token.value !== ":" && TokenUtils.movePrevToken(ctx)) {
+            if (ctx.token.type === "support.type.property-name.css" ||
+                    ctx.token.value === ":" || ctx.token.value === "{" ||
+                    ctx.token.value === ";") {
                 break;
             }
 
-            curValue = ctx.token.string;
+            curValue = ctx.token.value;
             if (lastValue !== "") {
                 curValue += lastValue;
             }
 
-            if ((ctx.token.string.length > 0 && !ctx.token.string.match(/\S/)) ||
-                    ctx.token.string === ",") {
+            if ((ctx.token.value.length > 0 && !ctx.token.value.match(/\S/)) ||
+                    ctx.token.value === ",") {
                 lastValue = curValue;
             } else {
                 lastValue = "";
@@ -220,7 +236,7 @@ define(function (require, exports, module) {
     /**
      * @private
      * Gets all of the space/comma seperated tokens after the the current cursor position.
-     * @param {editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}} context
+     * @param {editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}} context
      * @param {string} currentValue The token string at the current cursor position
      * @return {?Array.<string>} An array of all the space/comma seperated tokens after the
      *    current cursor position
@@ -230,33 +246,33 @@ define(function (require, exports, module) {
             curValue,
             propValues = [];
         
-        while (ctx.token.string !== ";" && TokenUtils.moveNextToken(ctx)) {
-            if (ctx.token.string === ";" || ctx.token.string === "}") {
+        while (ctx.token.value !== ";" && TokenUtils.moveNextToken(ctx)) {
+            if (ctx.token.value === ";" || ctx.token.value === "}") {
                 break;
             }
             // If we're already in the next rule, then we don't want to add the last value
             // since it is the property name of the next rule.
-            if (ctx.token.type === "property" || ctx.token.type === "property error" || ctx.token.type === "tag" ||
-                    ctx.token.string === ":") {
+            if (ctx.token.type === "support.type.property-name.css" ||
+                    ctx.token.value === ":") {
                 lastValue = "";
                 break;
             }
             
             if (lastValue === "") {
-                lastValue = ctx.token.string.trim();
+                lastValue = ctx.token.value.trim();
             } else if (lastValue.length > 0) {
-                if (ctx.token.string.length > 0 && !ctx.token.string.match(/\S/)) {
-                    lastValue += ctx.token.string;
+                if (ctx.token.value.length > 0 && !ctx.token.value.match(/\S/)) {
+                    lastValue += ctx.token.value;
                     propValues.push(lastValue);
                     lastValue = "";
-                } else if (ctx.token.string === ",") {
-                    lastValue += ctx.token.string;
+                } else if (ctx.token.value === ",") {
+                    lastValue += ctx.token.value;
                 } else if (lastValue && lastValue.match(/,$/)) {
                     propValues.push(lastValue);
                     lastValue = "";
                 } else {
                     // e.g. "rgba(50" gets broken into 2 tokens
-                    lastValue += ctx.token.string;
+                    lastValue += ctx.token.value;
                 }
             }
         }
@@ -270,7 +286,7 @@ define(function (require, exports, module) {
     /**
      * @private
      * Returns a context info object for the current CSS style rule
-     * @param {editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}} context
+     * @param {editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}} context
      * @param {!Editor} editor
      * @return {{context: string,
      *           offset: number,
@@ -283,7 +299,7 @@ define(function (require, exports, module) {
         var propNamePos = $.extend({}, ctx.pos),
             backwardPos = $.extend({}, ctx.pos),
             forwardPos  = $.extend({}, ctx.pos),
-            propNameCtx = TokenUtils.getInitialContext(editor._codeMirror, propNamePos),
+            propNameCtx = TokenUtils.getInitialContext(editor._ace, propNamePos),
             backwardCtx,
             forwardCtx,
             lastValue = "",
@@ -291,8 +307,8 @@ define(function (require, exports, module) {
             index = -1,
             offset = TokenUtils.offsetInToken(ctx),
             canAddNewOne = false,
-            testPos = {ch: ctx.pos.ch + 1, line: ctx.pos.line},
-            testToken = editor._codeMirror.getTokenAt(testPos, true),
+            testPos = {column: ctx.pos.column + 1, row: ctx.pos.row},
+            testToken = editor._ace.session.getTokenAt(testPos, true),
             propName;
         
         // Get property name first. If we don't have a valid property name, then 
@@ -303,29 +319,30 @@ define(function (require, exports, module) {
         }
         
         // Scan backward to collect all preceding property values
-        backwardCtx = TokenUtils.getInitialContext(editor._codeMirror, backwardPos);
+        backwardCtx = TokenUtils.getInitialContext(editor._ace, backwardPos);
         propValues = _getPrecedingPropValues(backwardCtx);
 
         lastValue = "";
-        if (ctx.token.string === ":") {
+        if (ctx.token.value === ":") {
             index = 0;
             canAddNewOne = true;
         } else {
             index = propValues.length - 1;
-            if (ctx.token.string === ",") {
-                propValues[index] += ctx.token.string;
+            if (ctx.token.value === ",") {
+                propValues[index] += ctx.token.value;
                 index++;
                 canAddNewOne = true;
             } else {
                 index = (index < 0) ? 0 : index + 1;
-                if (ctx.token.string.match(/\S/)) {
-                    lastValue = ctx.token.string;
+                if (ctx.token.value.match(/\S/)) {
+                    lastValue = ctx.token.value.replace(/^\s*/, '');
+                    offset -= ctx.token.value.length - lastValue.length;
                 } else {
                     // Last token is all whitespace
                     canAddNewOne = true;
                     if (index > 0) {
                         // Append all spaces before the cursor to the previous value in values array
-                        propValues[index - 1] += ctx.token.string.substr(0, offset);
+                        propValues[index - 1] += ctx.token.value.substr(0, offset);
                     }
                 }
             }
@@ -335,14 +352,14 @@ define(function (require, exports, module) {
             offset = 0;
 
             // If pos is at EOL, then there's implied whitespace (newline).
-            if (editor.document.getLine(ctx.pos.line).length > ctx.pos.ch  &&
-                    (testToken.string.length === 0 || testToken.string.match(/\S/))) {
+            if (editor.document.getLine(ctx.pos.row).length > ctx.pos.column  &&
+                    (!testToken || testToken.value.match(/\S/))) {
                 canAddNewOne = false;
             }
         }
         
         // Scan forward to collect all succeeding property values and append to all propValues.
-        forwardCtx = TokenUtils.getInitialContext(editor._codeMirror, forwardPos);
+        forwardCtx = TokenUtils.getInitialContext(editor._ace, forwardPos);
         propValues = propValues.concat(_getSucceedingPropValues(forwardCtx, lastValue));
         
         // If current index is more than the propValues size, then the cursor is 
@@ -357,7 +374,7 @@ define(function (require, exports, module) {
     /**
      * @private
      * Returns a context info object for the current CSS import rule
-     * @param {editor:{CodeMirror}, pos:{ch:{string}, line:{number}}, token:{object}} context
+     * @param {editor:{CodeMirror}, pos:{column:{string}, row:{number}}, token:{object}} context
      * @param {!Editor} editor
      * @return {{context: string,
      *           offset: number,
@@ -375,7 +392,7 @@ define(function (require, exports, module) {
             index = 0,
             propValues = [],
             offset = TokenUtils.offsetInToken(ctx),
-            testPos = {ch: ctx.pos.ch + 1, line: ctx.pos.line},
+            testPos = {column: ctx.pos.column + 1, row: ctx.pos.row},
             testToken = editor._codeMirror.getTokenAt(testPos, true);
 
         // Currently only support url. May be null if starting to type
@@ -386,24 +403,24 @@ define(function (require, exports, module) {
         // Move backward to @import and collect data as we go. We return propValues
         // array, but we can only have 1 value, so put all data in first item
         backwardCtx = TokenUtils.getInitialContext(editor._codeMirror, backwardPos);
-        propValues[0] = backwardCtx.token.string;
+        propValues[0] = backwardCtx.token.value;
 
         while (TokenUtils.movePrevToken(backwardCtx)) {
-            if (backwardCtx.token.className === "def" && backwardCtx.token.string === "@import") {
+            if (backwardCtx.token.className === "def" && backwardCtx.token.value === "@import") {
                 break;
             }
             
-            if (backwardCtx.token.className && backwardCtx.token.className !== "tag" && backwardCtx.token.string !== "url") {
+            if (backwardCtx.token.className && backwardCtx.token.className !== "tag" && backwardCtx.token.value !== "url") {
                 // Previous token may be white-space
                 // Otherwise, previous token may only be "url("
                 break;
             }
             
-            propValues[0] = backwardCtx.token.string + propValues[0];
-            offset += backwardCtx.token.string.length;
+            propValues[0] = backwardCtx.token.value + propValues[0];
+            offset += backwardCtx.token.value.length;
         }
         
-        if (backwardCtx.token.className !== "def" || backwardCtx.token.string !== "@import") {
+        if (backwardCtx.token.className !== "def" || backwardCtx.token.value !== "@import") {
             // Not in url
             return createInfo();
         }
@@ -412,14 +429,14 @@ define(function (require, exports, module) {
         forwardCtx = TokenUtils.getInitialContext(editor._codeMirror, forwardPos);
         do {
             if (!TokenUtils.moveNextToken(forwardCtx)) {
-                if (forwardCtx.token.string === "(") {
+                if (forwardCtx.token.value === "(") {
                     break;
                 } else {
                     return createInfo();
                 }
             }
-            propValues[0] += forwardCtx.token.string;
-        } while (forwardCtx.token.string !== ")" && forwardCtx.token.string !== "");
+            propValues[0] += forwardCtx.token.value;
+        } while (forwardCtx.token.value !== ")" && forwardCtx.token.value !== "");
         
         return createInfo(IMPORT_URL, offset, "", index, propValues, false);
     }
@@ -427,7 +444,7 @@ define(function (require, exports, module) {
     /**
      * Returns a context info object for the given cursor position
      * @param {!Editor} editor
-     * @param {{ch: number, line: number}} constPos  A CM pos (likely from editor.getCursor())
+     * @param {{column: number, row: number}} constPos  A CM pos (likely from editor.getCursor())
      * @return {{context: string,
      *           offset: number,
      *           name: string,
@@ -439,7 +456,7 @@ define(function (require, exports, module) {
         // We're going to be changing pos a lot, but we don't want to mess up
         // the pos the caller passed in so we use extend to make a safe copy of it.	
         var pos = $.extend({}, constPos),
-            ctx = TokenUtils.getInitialContext(editor._codeMirror, pos),
+            ctx = TokenUtils.getInitialContext(editor._ace, pos),
             offset = TokenUtils.offsetInToken(ctx),
             propName = "",
             mode = editor.getModeForSelection();
@@ -450,16 +467,11 @@ define(function (require, exports, module) {
         }
 
         if (_isInPropName(ctx)) {
-            if (ctx.token.type === "property" || ctx.token.type === "property error" || ctx.token.type === "tag") {
-                propName = ctx.token.string;
+            if (ctx.token && ctx.token.type === "support.type.property-name.css") {
+                propName = ctx.token.value;
             } else {
-                var testPos = {ch: ctx.pos.ch + 1, line: ctx.pos.line},
-                    testToken = editor._codeMirror.getTokenAt(testPos, true);
-                
-                if (testToken.type === "property" || testToken.type === "property error" || testToken.type === "tag") {
-                    propName = testToken.string;
-                    offset = 0;
-                }
+                propName = '';
+                offset = 0;
             }
             
             // If we're in property name context but not in an existing property name, 
@@ -487,19 +499,19 @@ define(function (require, exports, module) {
      * Returns an array of selectors. Each selector is an object with the following properties:
          selector:                 the text of the selector (note: comma separated selector groups like 
                                    "h1, h2" are broken into separate selectors)
-         ruleStartLine:            line in the text where the rule (including preceding comment) appears
+         ruleStartrow:            line in the text where the rule (including preceding comment) appears
          ruleStartChar:            column in the line where the rule (including preceding comment) starts
-         selectorStartLine:        line in the text where the selector appears
+         selectorStartrow:        line in the text where the selector appears
          selectorStartChar:        column in the line where the selector starts
-         selectorEndLine:          line where the selector ends
+         selectorEndrow:          line where the selector ends
          selectorEndChar:          column where the selector ends
-         selectorGroupStartLine:   line where the comma-separated selector group (e.g. .foo, .bar, .baz)
+         selectorGroupStartrow:   line where the comma-separated selector group (e.g. .foo, .bar, .baz)
                                    starts that this selector (e.g. .baz) is part of. Particularly relevant for
                                    groups that are on multiple lines.
          selectorGroupStartChar:   column in line where the selector group starts.
-         declListStartLine:        line where the declaration list for the rule starts
+         declListStartrow:        line where the declaration list for the rule starts
          declListStartChar:        column in line where the declaration list for the rule starts
-         declListEndLine:          line where the declaration list for the rule ends
+         declListEndrow:          line where the declaration list for the rule ends
          declListEndChar:          column in the line where the declaration list for the rule ends
      * @param text {!String} CSS text to extract from
      * @return {Array.<Object>} Array with objects specifying selectors.
@@ -531,7 +543,7 @@ define(function (require, exports, module) {
                     // make sure there is whitespace in the selector
                     currentSelector += " ";
                 }
-                stream = new CodeMirror.StringStream(lines[line]);
+                stream = new CodeMirror.valueStream(lines[line]);
             }
             return true;
         }
@@ -544,7 +556,7 @@ define(function (require, exports, module) {
                 return false;
             }
             line = 0;
-            stream = new CodeMirror.StringStream(lines[line]);
+            stream = new CodeMirror.valueStream(lines[line]);
             if (!_hasStream()) {
                 return false;
             }
@@ -646,18 +658,18 @@ define(function (require, exports, module) {
             
             currentSelector = currentSelector.trim();
             var startChar = (selectorGroupStartLine === -1) ? selectorStartChar : selectorStartChar + 1;
-            var selectorStart = (stream.string.indexOf(currentSelector, selectorStartChar) !== -1) ? stream.string.indexOf(currentSelector, selectorStartChar - currentSelector.length) : startChar;
+            var selectorStart = (stream.value.indexOf(currentSelector, selectorStartChar) !== -1) ? stream.value.indexOf(currentSelector, selectorStartChar - currentSelector.length) : startChar;
 
             if (currentSelector !== "") {
                 selectors.push({selector: currentSelector,
-                                ruleStartLine: ruleStartLine,
+                                ruleStartrow: ruleStartLine,
                                 ruleStartChar: ruleStartChar,
-                                selectorStartLine: selectorStartLine,
+                                selectorStartrow: selectorStartLine,
                                 selectorStartChar: selectorStart,
-                                declListEndLine: -1,
-                                selectorEndLine: line,
+                                declListEndrow: -1,
+                                selectorEndrow: line,
                                 selectorEndChar: selectorStart + currentSelector.length,
-                                selectorGroupStartLine: selectorGroupStartLine,
+                                selectorGroupStartrow: selectorGroupStartLine,
                                 selectorGroupStartChar: selectorGroupStartChar
                                });
                 currentSelector = "";
@@ -666,7 +678,7 @@ define(function (require, exports, module) {
         }
         
         function _parseSelectorList() {
-            selectorGroupStartLine = (stream.string.indexOf(",") !== -1) ? line : -1;
+            selectorGroupStartLine = (stream.value.indexOf(",") !== -1) ? line : -1;
             selectorGroupStartChar = stream.start;
 
             _parseSelector(stream.start);
@@ -853,7 +865,7 @@ define(function (require, exports, module) {
      *
      * @param text {!String} CSS text to search
      * @param selector {!String} selector to search for
-     * @return {Array.<{selectorGroupStartLine:number, declListEndLine:number, selector:string}>}
+     * @return {Array.<{selectorGroupStartrow:number, declListEndrow:number, selector:string}>}
      *      Array of objects containing the start and end line numbers (0-based, inclusive range) for each
      *      matched selector.
      */
@@ -897,7 +909,7 @@ define(function (require, exports, module) {
      * Converts the results of _findAllMatchingSelectorsInText() into a simpler bag of data and
      * appends those new objects to the given 'resultSelectors' Array.
      * @param {Array.<{document:Document, lineStart:number, lineEnd:number}>} resultSelectors
-     * @param {Array.<{selectorGroupStartLine:number, declListEndLine:number, selector:string}>} selectorsToAdd
+     * @param {Array.<{selectorGroupStartrow:number, declListEndrow:number, selector:string}>} selectorsToAdd
      * @param {!Document} sourceDoc
      * @param {!number} lineOffset Amount to offset all line number info by. Used if the first line
      *          of the parsed CSS text is not the first line of the sourceDoc.
@@ -964,7 +976,7 @@ define(function (require, exports, module) {
         styleBlocks.forEach(function (styleBlockInfo) {
             // Search this one <style> block's content, appending results to 'resultSelectors'
             var oneStyleBlockMatches = _findAllMatchingSelectorsInText(styleBlockInfo.text, selector);
-            _addSelectorsToResults(resultSelectors, oneStyleBlockMatches, htmlDocument, styleBlockInfo.start.line);
+            _addSelectorsToResults(resultSelectors, oneStyleBlockMatches, htmlDocument, styleBlockInfo.start.row);
         });
     }
     
@@ -1017,7 +1029,7 @@ define(function (require, exports, module) {
      * is not within a style rule.
      *
      * @param {!Editor} editor Editor to search
-     * @param {!{line: number, ch: number}} pos Position to search
+     * @param {!{row: number, column: number}} pos Position to search
      * @return {string} Selector(s) for the rule at the specified position, or "" if the position
      *          is not within a style rule. If the rule has multiple selectors, a comma-separated
      *          selector string is returned.
@@ -1046,10 +1058,10 @@ define(function (require, exports, module) {
             while (true) {
                 if (ctx.token.type !== "comment") {
                     // Stop once we've reached a {, }, or ;
-                    if (/[\{\}\;]/.test(ctx.token.string)) {
+                    if (/[\{\}\;]/.test(ctx.token.value)) {
                         break;
                     }
-                    selector = ctx.token.string + selector;
+                    selector = ctx.token.value + selector;
                 }
                 if (!TokenUtils.movePrevToken(ctx)) {
                     break;
@@ -1062,13 +1074,13 @@ define(function (require, exports, module) {
         // scan backwards to see if the cursor is in a rule
         while (true) {
             if (ctx.token.type !== "comment") {
-                if (ctx.token.string === "}") {
+                if (ctx.token.value === "}") {
                     break;
-                } else if (ctx.token.string === "{") {
+                } else if (ctx.token.value === "{") {
                     selector = _parseSelector(ctx);
                     break;
                 } else {
-                    if (ctx.token.string.trim() !== "") {
+                    if (ctx.token.value.trim() !== "") {
                         foundChars = true;
                     }
                 }
@@ -1087,7 +1099,7 @@ define(function (require, exports, module) {
         // special case - we aren't in a selector and haven't found any chars,
         // look at the next immediate token to see if it is non-whitespace
         if (!selector && !foundChars) {
-            if (TokenUtils.moveNextToken(ctx) && ctx.token.type !== "comment" && ctx.token.string.trim() !== "") {
+            if (TokenUtils.moveNextToken(ctx) && ctx.token.type !== "comment" && ctx.token.value.trim() !== "") {
                 foundChars = true;
                 ctx = TokenUtils.getInitialContext(cm, $.extend({}, pos));
             }
@@ -1099,10 +1111,10 @@ define(function (require, exports, module) {
             // scan forward to see if the cursor is in a selector
             while (true) {
                 if (ctx.token.type !== "comment") {
-                    if (ctx.token.string === "{") {
+                    if (ctx.token.value === "{") {
                         selector = _parseSelector(ctx);
                         break;
-                    } else if (ctx.token.string === "}" || ctx.token.string === ";") {
+                    } else if (ctx.token.value === "}" || ctx.token.value === ";") {
                         break;
                     }
                 }

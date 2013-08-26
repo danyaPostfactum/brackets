@@ -584,8 +584,8 @@ define(function (require, exports, module) {
      */
     UrlCodeHints.prototype.insertCssHint = function (completion) {
         var cursor = this.editor.getCursorPos(),
-            start  = { line: cursor.line, ch: cursor.ch },
-            end    = { line: cursor.line, ch: cursor.ch };
+            start  = { row: cursor.row, column: cursor.column },
+            end    = { row: cursor.row, column: cursor.column };
 
         var hasClosingQuote = false,
             hasClosingParen = false,
@@ -622,10 +622,10 @@ define(function (require, exports, module) {
 
         // Adjust insert char positions to replace existing value, if there is a closing paren
         if (closingPos.index !== -1) {
-            end.ch += this.getCharOffset(this.info.values, this.info, closingPos);
+            end.column += this.getCharOffset(this.info.values, this.info, closingPos);
         }
         if (this.info.filter.length > 0) {
-            start.ch -= this.info.filter.length;
+            start.column -= this.info.filter.length;
         }
 
         // Append matching quote, whitespace, paren
@@ -644,14 +644,14 @@ define(function (require, exports, module) {
         // directly to replace the range instead of using the Document, as we should. The
         // reason is due to a flaw in our current document synchronization architecture when
         // inline editors are open.
-        this.editor._codeMirror.replaceRange(insertText, start, end);
+        this.editor.document.replaceRange(insertText, start, end);
 
         // Adjust cursor position
         if (this.closeOnSelect) {
             // If there is existing closing quote and/or paren, move the cursor past them
             moveLen = (hasClosingQuote ? 1 : 0) + (hasClosingParen ? 1 : 0);
             if (moveLen > 0) {
-                this.editor.setCursorPos(start.line, start.ch + completion.length + moveLen);
+                this.editor.setCursorPos(start.row, start.column + completion.length + moveLen);
             }
             return false;
 
@@ -659,7 +659,7 @@ define(function (require, exports, module) {
             // If closing quote and/or paren are added, move the cursor to where it would have been
             moveLen = ((this.info.openingQuote && !hasClosingQuote) ? 1 : 0) + (!hasClosingParen ? 1 : 0);
             if (moveLen > 0) {
-                this.editor.setCursorPos(start.line, start.ch + completion.length);
+                this.editor.setCursorPos(start.row, start.column + completion.length);
             }
         }
 
@@ -678,8 +678,8 @@ define(function (require, exports, module) {
      */
     UrlCodeHints.prototype.insertHtmlHint = function (completion) {
         var cursor = this.editor.getCursorPos(),
-            start = {line: -1, ch: -1},
-            end = {line: -1, ch: -1},
+            start = {row: -1, column: -1},
+            end = {row: -1, column: -1},
             tagInfo = HTMLUtils.getTagInfo(this.editor, cursor),
             tokenType = tagInfo.position.tokenType,
             charCount = 0,
@@ -708,12 +708,12 @@ define(function (require, exports, module) {
             }
         }
 
-        end.line = start.line = cursor.line;
-        start.ch = cursor.ch - tagInfo.position.offset;
-        end.ch = start.ch + charCount;
+        end.row = start.row = cursor.row;
+        start.column = cursor.column - tagInfo.position.offset;
+        end.column = start.column + charCount;
 
         if (shouldReplace) {
-            if (start.ch !== end.ch) {
+            if (start.column !== end.column) {
                 this.editor.document.replaceRange(completion, start, end);
             } else {
                 this.editor.document.replaceRange(completion, start);
@@ -724,14 +724,14 @@ define(function (require, exports, module) {
             // If we append the missing quote, then we need to adjust the cursor postion
             // to keep the code hint list open.
             if (tokenType === HTMLUtils.ATTR_VALUE && !tagInfo.attr.hasEndQuote) {
-                this.editor.setCursorPos(start.line, start.ch + completion.length - 1);
+                this.editor.setCursorPos(start.row, start.column + completion.length - 1);
             }
             return true;
         }
         
         if (tokenType === HTMLUtils.ATTR_VALUE && tagInfo.attr.hasEndQuote) {
             // Move the cursor to the right of the existing end quote after value insertion.
-            this.editor.setCursorPos(start.line, start.ch + completion.length + 1);
+            this.editor.setCursorPos(start.row, start.column + completion.length + 1);
         }
         
         return false;

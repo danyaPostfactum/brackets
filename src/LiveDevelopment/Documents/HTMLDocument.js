@@ -132,11 +132,11 @@ define(function HTMLDocumentModule(require, exports, module) {
         if (!this.editor) {
             return;
         }
-        var codeMirror = this.editor._codeMirror;
+        var ace = this.editor._ace;
         if (Inspector.config.highlight) {
             var tagID = HTMLInstrumentation._getTagIDAtDocumentPos(
                 this.editor,
-                codeMirror.getCursor()
+                ace.getCursorPosition()
             );
             
             if (tagID === -1) {
@@ -152,10 +152,10 @@ define(function HTMLDocumentModule(require, exports, module) {
         if (!this.editor) {
             return;
         }
-        var codeMirror = this.editor._codeMirror;
+        var ace = this.editor._ace;
         while (change) {
-            var from = codeMirror.indexFromPos(change.from);
-            var to = codeMirror.indexFromPos(change.to);
+            var from = ace.session.doc.positionToIndex(change.from);
+            var to = ace.session.doc.positionToIndex(change.to);
             var text = change.text.join("\n");
             DOMAgent.applyChange(from, to, text);
             change = change.next;
@@ -166,23 +166,23 @@ define(function HTMLDocumentModule(require, exports, module) {
     HTMLDocument.prototype.onHighlight = function onHighlight(event, node) {
         if (!node || !node.location || !this.editor) {
             if (this._highlight) {
-                this._highlight.clear();
+                this.editor && this.editor.document.removeMarker(this._highlight);
                 delete this._highlight;
             }
             return;
         }
-        var codeMirror = this.editor._codeMirror;
-        var to, from = codeMirror.posFromIndex(node.location);
+        var ace = this.editor._ace;
+        var to, from = ace.session.doc.positionToIndex(node.location);
         if (node.closeLocation) {
             to = node.closeLocation + node.closeLength;
         } else {
             to = node.location + node.length;
         }
-        to = codeMirror.posFromIndex(to);
+        to = ace.session.doc.positionToIndex(to);
         if (this._highlight) {
-            this._highlight.clear();
+            this.editor.document.removeMarker(this._highlight);
         }
-        this._highlight = codeMirror.markText(from, to, { className: "highlight" });
+        this._highlight = this.editor.document.addMarker(from, to, "highlight");
     };
 
     /** Triggered when a document is saved */

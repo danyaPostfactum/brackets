@@ -245,31 +245,30 @@ define(function (require, exports, module) {
     function _markText(editor) {
         var cache = _cachedValues[editor.document.file.fullPath];
         
-        var cm = editor._codeMirror,
+        var ace = editor._ace,
             tags = cache && cache.tags;
         
         if (!tags) {
             console.error("Couldn't find the tag information for " + editor.document.file.fullPath);
             return;
         }
-        
-        // Remove existing marks
-        var marks = cm.getAllMarks();
-        cm.operation(function () {
-            marks.forEach(function (mark) {
-                if (mark.hasOwnProperty("tagID")) {
-                    mark.clear();
-                }
-            });
-        });
+        // todo ace
+        // // Remove existing marks
+        // var marks = cm.getAllMarks();
+        // cm.operation(function () {
+        //     marks.forEach(function (mark) {
+        //         if (mark.hasOwnProperty("tagID")) {
+        //             mark.clear();
+        //         }
+        //     });
+        // });
                 
         // Mark
         tags.forEach(function (tag) {
-            var startPos = cm.posFromIndex(tag.offset),
-                endPos = cm.posFromIndex(tag.offset + tag.length),
-                mark = cm.markText(startPos, endPos);
-            
-            mark.tagID = tag.tagID;
+            var startPos = ace.session.doc.indexToPosition(tag.offset),
+                endPos = ace.session.doc.indexToPosition(tag.offset + tag.length),
+                mark = editor.document.addMarker(startPos, endPos);
+            editor.document.getMarkers()[mark].tagID = tag.tagID;
         });
     }
     
@@ -286,19 +285,21 @@ define(function (require, exports, module) {
      */
     function _getTagIDAtDocumentPos(editor, pos) {
         var i,
-            cm = editor._codeMirror,
-            marks = cm.findMarksAt(pos),
+            ace = editor._ace,
+            allMarks = editor.document.getMarkers(),
+            marks = [],
             match;
-        
+
         var _distance = function (mark) {
-            var markerLoc = mark.find();
-            if (markerLoc) {
-                var markPos = markerLoc.from;
-                return (cm.indexFromPos(pos) - cm.indexFromPos(markPos));
-            } else {
-                return Number.MAX_VALUE;
-            }
+            var markPos = mark.range.start;
+            return (ace.session.doc.positionToIndex(pos) - ace.session.doc.positionToIndex(markPos));
         };
+
+        for (var key in allMarks) {
+            if (allMarks[key].range && allMarks[key].range.contains(pos.row, pos.column)) {
+                marks.push(allMarks[key]);
+            }
+        }
         
         for (i = 0; i < marks.length; i++) {
             if (!match) {

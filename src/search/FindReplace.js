@@ -109,61 +109,6 @@ define(function (require, exports, module) {
             return "";
         }
     }
-
-    function findNext(editor, rev) {
-        var cm = editor._codeMirror;
-        var found = true;
-        cm.operation(function () {
-            var state = getSearchState(cm);
-            var cursor = getSearchCursor(cm, state.query, rev ? state.posFrom : state.posTo);
-
-            if (!cursor.find(rev)) {
-                // If no result found before hitting edge of file, try wrapping around
-                cursor = getSearchCursor(cm, state.query, rev ? {line: cm.lineCount() - 1} : {line: 0, ch: 0});
-                
-                // No result found, period: clear selection & bail
-                if (!cursor.find(rev)) {
-                    cm.setCursor(cm.getCursor());  // collapses selection, keeping cursor in place to avoid scrolling
-                    found = false;
-                    return;
-                }
-            }
-
-            var resultVisible = editor.isLineVisible(cursor.from().line),
-                centerOptions = Editor.BOUNDARY_CHECK_NORMAL;
-            
-            if (isFindFirst && resultVisible) {
-                // no need to scroll if the line with the match is in view
-                centerOptions = Editor.BOUNDARY_IGNORE_TOP;
-            }
-            editor.setSelection(cursor.from(), cursor.to(), true, centerOptions);
-            state.posFrom = cursor.from();
-            state.posTo = cursor.to();
-            state.findNextCalled = true;
-        });
-        return found;
-    }
-
-    function clearHighlights(cm, state) {
-        cm.operation(function () {
-            state.marked.forEach(function (markedRange) {
-                markedRange.clear();
-            });
-        });
-        state.marked.length = 0;
-    }
-
-    function clearSearch(cm) {
-        cm.operation(function () {
-            var state = getSearchState(cm);
-            if (!state.query) {
-                return;
-            }
-            state.query = null;
-
-            clearHighlights(cm, state);
-        });
-    }
     
     function createModalBar(template, autoClose) {
         // Normally, creating a new modal bar will simply cause the old one to close
@@ -185,6 +130,60 @@ define(function (require, exports, module) {
             ": <input type='text' style='width: 10em'/> <div class='message'><span id='find-counter'></span> " +
             "<span style='color: #888'>(" + Strings.SEARCH_REGEXP_INFO  + ")</span></div><div class='error'></div>";
 
+    function highlight(editor, re) {
+        editor._ace.session.highlight(re || editor._ace.$search.$options.re);
+        editor._ace.renderer.updateBackMarkers();
+    }
+
+    function find(editor, skipCurrent, backwards) {
+        var $input = getDialogTextField();
+        var range = editor._ace.find($input.val(), {
+            skipCurrent: skipCurrent,
+            backwards: backwards,
+            wrap: true,
+            //regExp: this.regExpOption.checked,
+            //caseSensitive: this.caseSensitiveOption.checked,
+            //wholeWord: this.wholeWordOption.checked
+        });
+        highlight(editor);
+    }
+
+    function findFirst(editor) {
+        find(editor, false, false);
+    }
+
+    function findNext(editor) {
+        find(editor, true);
+    }
+
+    function findPrevious(editor) {
+        find(editor, true, true);
+    }
+
+    function launch(editor, initialQuery) {
+       createModalBar(queryDialog, true);
+        $(modalBar).on("closeOk", function (e, query) {
+            // if (!state.findNextCalled) {
+            //     // If findNextCalled is false, this means the user has *not*
+            //     // entered any search text *or* pressed Cmd-G/F3 to find the
+            //     // next occurrence. In this case we want to start searching
+            //     // *after* the current selection so we find the next occurrence.
+            //     searchStartPos = cm.getCursor(false);
+            //     findFirst(query);
+            // }
+        });
+        $(modalBar).on("closeOk closeCancel closeBlur", function (e, query) {
+            editor._ace.focus();
+        });
+        
+        var $input = getDialogTextField();
+        $input.val(initialQuery);
+        $input.on("input", function () {
+            setTimeout(function(){
+                findFirst(editor);
+            }, 20);
+        });
+    }
     /**
      * If no search pending, opens the search dialog. If search is already open, moves to
      * next/prev result (depending on 'rev')
@@ -431,7 +430,6 @@ define(function (require, exports, module) {
             '</button> <button id="replace-stop" class="btn">' + Strings.BUTTON_STOP + '</button>';
 
     function replace(editor, all) {
-        var cm = editor._codeMirror;
         createModalBar(replaceQueryDialog, true);
         $(modalBar).on("closeOk", function (e, query) {
             if (!query) {
@@ -502,32 +500,28 @@ define(function (require, exports, module) {
 
         // Prepopulate the replace field with the current selection, if any
         getDialogTextField()
-            .val(cm.getSelection())
+            .val(editor.getSelectedText())
             .get(0).select();
     }
 
     function _launchFind() {
         var editor = EditorManager.getActiveEditor();
         if (editor) {
-            var codeMirror = editor._codeMirror;
-
-            // Create a new instance of the search bar UI
-            clearSearch(codeMirror);
-            doSearch(editor, false, codeMirror.getSelection());
+            launch(editor, editor.getSelectedText());
         }
     }
 
     function _findNext() {
         var editor = EditorManager.getActiveEditor();
         if (editor) {
-            doSearch(editor);
+            findNext(editor);
         }
     }
 
     function _findPrevious() {
         var editor = EditorManager.getActiveEditor();
         if (editor) {
-            doSearch(editor, true);
+            findPrevious(editor);
         }
     }
 

@@ -357,9 +357,23 @@ define(function (require, exports, module) {
         this._ensureMasterEditor();
         
         var self = this;
-        // todo
+        // todo ace
         doOperation();
     };
+
+    Document.prototype.addMarker = function(from, to, className) {
+        var range = new (ace.require('ace/range').Range)(from.row, from.column, to.row, to.column);
+        return this._masterEditor._ace.session.addMarker(range, className);
+    };
+
+    Document.prototype.removeMarker = function(id) {
+        this._masterEditor._ace.session.removeMarker(id);
+    };
+
+    Document.prototype.getMarkers = function() {
+        return this._masterEditor._ace.session.getMarkers();
+    }
+
     
     /**
      * Handles changes from the master backing Editor. Changes are triggered either by direct edits
@@ -367,17 +381,14 @@ define(function (require, exports, module) {
      * @private
      */
     Document.prototype._handleEditorChange = function (event, editor, changeList) {
-        
-        setTimeout(function(){
-            // On any change, mark the file dirty. In the future, we should make it so that if you
-            // undo back to the last saved state, we mark the file clean.
-            var wasDirty = this.isDirty;
-            this.isDirty = !editor._ace.session.$undoManager.isClean();
-            // If file just became dirty, notify listeners, and add it to working set (if not already there)
-            if (wasDirty !== this.isDirty) {
-                $(exports).triggerHandler("_dirtyFlagChange", [this]);
-            }
-        }.bind(this), 0);
+        // On any change, mark the file dirty. In the future, we should make it so that if you
+        // undo back to the last saved state, we mark the file clean.
+        var wasDirty = this.isDirty;
+        this.isDirty = !editor._ace.session.$undoManager.isClean();
+        // If file just became dirty, notify listeners, and add it to working set (if not already there)
+        if (wasDirty !== this.isDirty) {
+            $(exports).triggerHandler("_dirtyFlagChange", [this]);
+        }
         
         // Notify that Document's text has changed
         // TODO: This needs to be kept in sync with SpecRunnerUtils.createMockDocument(). In the
