@@ -524,24 +524,26 @@ define(function (require, exports, module) {
      * the lastChar.
      */
     function handleChange(editor) {
-        if (lastChar && editor === keyDownEditor) {
-            keyDownEditor = null;
-            if (_inSession(editor)) {
-                var charToRetest = lastChar;
-                _updateHintList();
-                
-                // _updateHintList() may end a hinting session and clear lastChar, but a 
-                // different provider may want to start a new session with the same character.  
-                // So check whether current provider terminates the current hinting
-                // session. If so, then restore lastChar and restart a new session.
-                if (!_inSession(editor)) {
-                    lastChar = charToRetest;
+        setTimeout(function() {
+            if (lastChar && editor === keyDownEditor) {
+                keyDownEditor = null;
+                if (_inSession(editor)) {
+                    var charToRetest = lastChar;
+                    _updateHintList();
+                    
+                    // _updateHintList() may end a hinting session and clear lastChar, but a 
+                    // different provider may want to start a new session with the same character.  
+                    // So check whether current provider terminates the current hinting
+                    // session. If so, then restore lastChar and restart a new session.
+                    if (!_inSession(editor)) {
+                        lastChar = charToRetest;
+                        _beginSession(editor);
+                    }
+                } else {
                     _beginSession(editor);
                 }
-            } else {
-                _beginSession(editor);
             }
-        }
+        }, 0);
     }
 
     /**

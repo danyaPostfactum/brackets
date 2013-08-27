@@ -187,24 +187,24 @@ define(function (require, exports, module) {
             type    = session.getType();
 
         return !cachedHints || !cachedCursor || !cachedType ||
-            cachedCursor.line !== cursor.line ||
+            cachedCursor.row !== cursor.row ||
             type.property !== cachedType.property ||
             type.context !== cachedType.context ||
             type.showFunctionType !== cachedType.showFunctionType ||
             (type.functionCallPos && cachedType.functionCallPos &&
-            type.functionCallPos.ch !== cachedType.functionCallPos.ch);
+            type.functionCallPos.column !== cachedType.functionCallPos.column);
     };
 
     /**
      *  Cache the hints and the hint's context.
      *
      *  @param {Array.<string>} hints - array of hints
-     *  @param {{line:number, ch:number}} cursor - the location where the hints
+     *  @param {{row:number, column:number}} cursor - the location where the hints
      *  were created.
      * @param {{property: boolean,
                 showFunctionType:boolean,
                 context: string,
-                functionCallPos: {line:number, ch:number}}} type -
+                functionCallPos: {row:number, column:number}}} type -
      *  type information about the hints
      *  @param {Object} token - CodeMirror token
      */
@@ -239,7 +239,7 @@ define(function (require, exports, module) {
             lastToken = cachedToken;
 
         // if the line has changed, then close the hints
-        if (!cachedCursor || cursor.line !== cachedCursor.line) {
+        if (!cachedCursor || cursor.row !== cachedCursor.row) {
             return true;
         }
 
@@ -311,12 +311,12 @@ define(function (require, exports, module) {
      *  no completions for the query.
      *
      * @param {string} query - user text to search hints with
-     *  @param {{line:number, ch:number}} cursor - the location where the hints
+     *  @param {{row:number, column:number}} cursor - the location where the hints
      *  were created.
      * @param {{property: boolean,
                  showFunctionType:boolean,
                  context: string,
-                 functionCallPos: {line:number, ch:number}}} type -
+                 functionCallPos: {row:number, column:number}}} type -
      *  type information about the hints
      *  @param {Object} token - CodeMirror token
      * @param {jQuery.Deferred=} $deferredHints - existing Deferred we need to
@@ -465,8 +465,8 @@ define(function (require, exports, module) {
             cursor      = session.getCursor(),
             token       = session.getToken(cursor),
             query       = session.getQuery(),
-            start       = {line: cursor.line, ch: cursor.ch - query.length},
-            end         = {line: cursor.line, ch: cursor.ch},
+            start       = {row: cursor.row, column: cursor.column - query.length},
+            end         = {row: cursor.row, column: cursor.column},
             invalidPropertyName = false,
             displayFunctionHint = false;
 
@@ -497,8 +497,8 @@ define(function (require, exports, module) {
                 var dotCursor = session.findPreviousDot();
                 if (dotCursor) {
                     completion = "[\"" + completion + "\"]";
-                    start.line = dotCursor.line;
-                    start.ch = dotCursor.ch - 1;
+                    start.row = dotCursor.row;
+                    start.column = dotCursor.column - 1;
                 }
             }
         }
@@ -515,12 +515,12 @@ define(function (require, exports, module) {
         // directly to replace the range instead of using the Document, as we should. The
         // reason is due to a flaw in our current document synchronization architecture when
         // inline editors are open.
-        session.editor._codeMirror.replaceRange(completion, start, end);
+        session.editor.document.replaceRange(completion, start, end);
 
         // If displaying a function hint, move the cursor inside the "()".
         // Then pop-up a function hint.
         if (displayFunctionHint) {
-            var pos = {line: start.line, ch: start.ch + completion.length - 1};
+            var pos = {row: start.row, column: start.column + completion.length - 1};
 
             // stop cursor tracking before setting the cursor to avoid bringing
             // down the current hint.
@@ -528,7 +528,7 @@ define(function (require, exports, module) {
                 ParameterHintManager.stopCursorTracking(session);
             }
 
-            session.editor._codeMirror.setCursor(pos);
+            session.editor.setCursorPos(pos);
 
             if (ParameterHintManager.isHintDisplayed()) {
                 ParameterHintManager.startCursorTracking(session);
@@ -685,7 +685,7 @@ define(function (require, exports, module) {
                 if (isFunction) {
                     // When jumping to function defs, follow the chain back
                     // to get to the original function def
-                    var cursor = {line: end.line, ch: end.ch},
+                    var cursor = {row: end.row, column: end.column},
                         prev = session._getPreviousToken(cursor),
                         next,
                         token,
@@ -693,14 +693,14 @@ define(function (require, exports, module) {
     
                     // see if the selection is preceded by a '.', indicating we're in a member expr
                     if (prev.string === ".") {
-                        cursor = {line: end.line, ch: end.ch};
+                        cursor = {row: end.row, column: end.column};
                         next = session.getNextToken(cursor, true);
                         // check if the next token indicates an assignment
                         if (next && next.string === "=") {
                             next = session.getNextToken(cursor, true);
                             // find the last token of the identifier, or member expr
                             while (validIdOrProp(next)) {
-                                offset = session.getOffsetFromCursor({line: cursor.line, ch: next.end});
+                                offset = session.getOffsetFromCursor({row: cursor.row, column: next.end});
                                 next = session.getNextToken(cursor, false);
                             }
                             if (offset) {

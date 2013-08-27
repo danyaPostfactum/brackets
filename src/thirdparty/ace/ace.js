@@ -2257,13 +2257,12 @@ var Editor = function(renderer, session) {
         this.$updateHighlightActiveLine();
         this.renderer.updateFull();
     };
-
+    this.getSelectedText = function() {
+        return this.session.getTextRange(this.getSelectionRange());
+    };
     this.getCopyText = function() {
-        var text = "";
-        if (!this.selection.isEmpty())
-            text = this.session.getTextRange(this.getSelectionRange());
-
-        this._emit("copy", text);
+        var text = this.getSelectedText();
+        this._signal("copy", text);
         return text;
     };
     this.onCopy = function() {
@@ -3287,6 +3286,7 @@ config.defineOptions(Editor.prototype, "editor", {
     maxLines: "renderer",
     minLines: "renderer",
     scrollPastEnd: "renderer",
+    fixedWidthGutter: "renderer",
 
     scrollSpeed: "$mouseHandler",
     dragDelay: "$mouseHandler",
@@ -8854,6 +8854,8 @@ var Document = function(text) {
         return end;
     };
     this.remove = function(range) {
+        if (!range instanceof Range)
+            range = Range.fromPoints(range.start, range.end);
         range.start = this.$clipPosition(range.start);
         range.end = this.$clipPosition(range.end);
 
@@ -8937,6 +8939,8 @@ var Document = function(text) {
         this._emit("change", { data: delta });
     };
     this.replace = function(range, text) {
+        if (!range instanceof Range)
+            range = Range.fromPoints(range.start, range.end);
         if (text.length == 0 && range.isEmpty())
             return range.start;
         if (text == this.getTextRange(range))
@@ -11618,7 +11622,7 @@ exports.commands = [{
     exec: function(editor) { editor.moveLinesDown(); }
 }, {
     name: "del",
-    bindKey: bindKey("Delete", "Delete|Ctrl-D"),
+    bindKey: bindKey("Delete", "Delete|Ctrl-D|Shift-Delete"),
     exec: function(editor) { editor.remove("right"); },
     multiSelectAction: "forEach"
 }, {
@@ -11628,6 +11632,17 @@ exports.commands = [{
         "Ctrl-Backspace|Shift-Backspace|Backspace|Ctrl-H"
     ),
     exec: function(editor) { editor.remove("left"); },
+    multiSelectAction: "forEach"
+}, {
+    name: "cut_or_delete",
+    bindKey: bindKey("Shift-Delete", null),
+    exec: function(editor) { 
+        if (editor.selection.isEmpty()) {
+            editor.remove("left");
+        } else {
+            return false;
+        }
+    },
     multiSelectAction: "forEach"
 }, {
     name: "removetolinestart",
@@ -13025,6 +13040,10 @@ var VirtualRenderer = function(container, theme) {
             this.scrollLeft = scrollLeft;
         this.$loop.schedule(this.CHANGE_H_SCROLL);
     };
+    this.scrollTo = function(x, y) {
+        this.session.setScrollTop(y);
+        this.session.setScrollLeft(y);
+    };
     this.scrollBy = function(deltaX, deltaY) {
         deltaY && this.session.setScrollTop(this.session.getScrollTop() + deltaY);
         deltaX && this.session.setScrollLeft(this.session.getScrollLeft() + deltaX);
@@ -13150,11 +13169,14 @@ var VirtualRenderer = function(container, theme) {
     this.getTheme = function() {
         return this.$themeValue;
     };
-    this.setStyle = function setStyle(style, include) {
+    this.setStyle = function(style, include) {
         dom.setCssClass(this.container, style, include != false);
     };
-    this.unsetStyle = function unsetStyle(style) {
+    this.unsetStyle = function(style) {
         dom.removeCssClass(this.container, style);
+    };
+    this.setMouseCursor = function(cursorStyle) {
+        this.content.style.cursor = cursorStyle;
     };
     this.destroy = function() {
         this.$textLayer.destroy();
@@ -13281,6 +13303,12 @@ config.defineOptions(VirtualRenderer.prototype, "renderer", {
         },
         initialValue: 0,
         handlesSet: true
+    },
+    fixedWidthGutter: {
+        set: function(val) {
+            this.$gutterLayer.$fixedWidth = !!val;
+            this.$loop.schedule(this.CHANGE_GUTTER);
+        }
     }
 });
 
@@ -13424,7 +13452,7 @@ var Gutter = function(parentEl) {
         this.element = dom.setInnerHtml(this.element, html.join(""));
         this.element.style.height = config.minHeight + "px";
         
-        if (this.session.$useWrapMode)
+        if (this.$fixedWidth || this.session.$useWrapMode)
             lastLineNumber = this.session.getLength();
         
         var gutterWidth = ("" + lastLineNumber).length * config.characterWidth;
@@ -13437,6 +13465,8 @@ var Gutter = function(parentEl) {
         }
     };
 
+    this.$fixedWidth = false;
+    
     this.$showFoldWidgets = true;
     this.setShowFoldWidgets = function(show) {
         if (show)
@@ -13774,8 +13804,7 @@ var Text = function(parentEl) {
             style.position = "fixed";
             style.overflow = "visible";
             style.whiteSpace = "nowrap";
-
-            measureNode.innerHTML = "X";
+            measureNode.innerHTML = lang.stringRepeat("X", 100);
 
             var container = this.element.parentNode;
             while (container && !dom.hasCssClass(container, "ace_editor"))
@@ -13791,7 +13820,7 @@ var Text = function(parentEl) {
 
         var size = {
             height: rect.height,
-            width: rect.width
+            width: rect.width / 100
         };
         if (size.width == 0 || size.height == 0)
             return null;
@@ -14993,7 +15022,7 @@ var Editor = require("./editor").Editor;
         this.multiSelect.toSingleRange();
     };
 
-    this.getCopyText = function() {
+    this.getSelectedText = function() {
         var text = "";
         if (this.inMultiSelectMode && !this.inVirtualSelectionMode) {
             var ranges = this.multiSelect.rangeList.ranges;
@@ -15008,7 +15037,6 @@ var Editor = require("./editor").Editor;
         } else if (!this.selection.isEmpty()) {
             text = this.session.getTextRange(this.getSelectionRange());
         }
-        this._signal("copy", text);
         return text;
     };
     this.onPaste = function(text) {
@@ -15312,23 +15340,22 @@ function MultiSelect(editor) {
 function addAltCursorListeners(editor){
     var el = editor.textInput.getElement();
     var altCursor = false;
-    var contentEl = editor.renderer.content;
     event.addListener(el, "keydown", function(e) {
         if (e.keyCode == 18 && !(e.ctrlKey || e.shiftKey || e.metaKey)) {
             if (!altCursor) {
-                contentEl.style.cursor = "crosshair";
+                editor.renderer.setMouseCursor("crosshair");
                 altCursor = true;
             }
         } else if (altCursor) {
-            contentEl.style.cursor = "";
+            reset();
         }
     });
 
     event.addListener(el, "keyup", reset);
     event.addListener(el, "blur", reset);
-    function reset() {
+    function reset(e) {
         if (altCursor) {
-            contentEl.style.cursor = "";
+            editor.renderer.setMouseCursor("");
             altCursor = false;
         }
     }
@@ -17763,6 +17790,7 @@ module.exports.themes = [
     "clouds",
     "clouds_midnight",
     "cobalt",
+    "codemirror",
     "crimson_editor",
     "dawn",
     "dreamweaver",

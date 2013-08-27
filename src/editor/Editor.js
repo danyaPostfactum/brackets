@@ -359,17 +359,19 @@ define(function (require, exports, module) {
         wrapper.style.left = wrapper.style.right = 0;
         container.appendChild(wrapper);
         this._ace = ace.edit(wrapper);
+        //this._ace.setTheme('ace/theme/monokai');
         // temporary polyfill
         this._ace.renderer.scrollTo = function(x, y) {
             this.scrollToX(x);
             this.scrollToY(y);
         };
-        this._ace.setTheme('ace/theme/dreamweaver');
         this._ace.setShowPrintMargin(false);
         this._ace.container.style.lineHeight = '1.4';
         this._ace.setOption('scrollPastEnd', true);
+        this._ace.setOption('fixedWidthGutter', true);
         this._ace.renderer.$cursorLayer.setSmoothBlinking(true);
         this._ace.setOption('vScrollBarAlwaysVisible', true);
+        this._ace.setOption('scrollSpeed', 3);
         // Create the CodeMirror instance
         // (note: CodeMirror doesn't actually require using 'new', but jslint complains without it)
         var cm = new CodeMirror(container, {
@@ -672,9 +674,7 @@ define(function (require, exports, module) {
         // // NOTE: change is a "private" event--others shouldn't listen to it on Editor, only on
         // // Document
         this._ace.on("change", function (e) {
-            setTimeout(function(){
-                $(self).triggerHandler("change", [self, e.data]);
-            }, 0);
+            $(self).triggerHandler("change", [self, e.data]);
         });
         this._ace.on("changeSelection", function (e) {
             $(self).triggerHandler("cursorActivity", [self]);
@@ -716,10 +716,10 @@ define(function (require, exports, module) {
 
         var cursorPos = this.getCursorPos(),
             scrollPos = this.getScrollPos();
-        
+
         // This *will* fire a change event, but we clear the undo immediately afterward
-        this._ace.setValue(text);
-        
+        this._ace.session.setValue(text);
+
         // Make sure we can't undo back to the empty state before setValue(), and mark
         // the document clean.
         this._ace.session.$undoManager.reset();
@@ -766,7 +766,7 @@ define(function (require, exports, module) {
      * @param {boolean} center  true if the view should be centered on the new cursor position
      */
     Editor.prototype.setCursorPos = function (pos, center) {
-        this._ace.selection.moveCursorTo(pos.row, pos.column);
+        this._ace.selection.setRange({start: pos, end: pos});
         if (center) {
             this.centerOnCursor();
         }
@@ -793,7 +793,7 @@ define(function (require, exports, module) {
      * @return {number}
      */
     Editor.prototype.indexFromPos = function (coords) {
-        return this._codeMirror.indexFromPos(coords);
+        return this._ace.session.doc.positionToIndex(coords);
     };
 
     /**
@@ -1533,6 +1533,7 @@ define(function (require, exports, module) {
     Editor.setShowActiveLine = function (value) {
         _styleActiveLine = value;
         _setEditorOptionAndPref(value, "highlightActiveLine", "styleActiveLine");
+        _setEditorOption(value, 'highlightGutterLine');
     };
     
     /** @type {boolean} Returns true if show active line is enabled for all editors */

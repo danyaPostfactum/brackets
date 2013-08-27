@@ -313,7 +313,7 @@ define(function (require, exports, module) {
                         }
                     });
             } else if (!isNaN(gotoLine)) {
-                EditorManager.getCurrentFullEditor().setCursorPos(gotoLine, 0, true);
+                EditorManager.getCurrentFullEditor().setCursorPos({row: gotoLine, column:0}, true);
             }
         }
 
@@ -541,8 +541,8 @@ define(function (require, exports, module) {
         // "Go to line" mode is special-cased
         var gotoLine = extractLineNumber(query);
         if (!isNaN(gotoLine)) {
-            var from = {line: gotoLine, ch: 0};
-            var to = {line: gotoLine, ch: 99999};
+            var from = {row: gotoLine, column: 0};
+            var to = {row: gotoLine, column: 99999};
             
             EditorManager.getCurrentFullEditor().setSelection(from, to, true);
         }

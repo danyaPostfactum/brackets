@@ -245,7 +245,7 @@ define(function (require, exports, module) {
      */
     Document.prototype.setText = function (text) {
         this._ensureMasterEditor();
-        this._masterEditor._ace.setValue(text);
+        this._masterEditor._ace.session.setValue(text);
         // _handleEditorChange() triggers "change" event
     };
     
